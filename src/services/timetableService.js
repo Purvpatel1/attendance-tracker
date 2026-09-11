@@ -2,7 +2,7 @@ import {
   SUBJECTS_BY_BRANCH,
   TIMETABLE_SLOTS_BY_BRANCH,
   BRANCH_BATCH_MAP,
-} from '../data/timetableData';
+} from '../data/timetableData.js';
 
 const DAYS_OF_WEEK = [
   { id: 1, name: 'Monday', short: 'Mon' },
@@ -38,7 +38,7 @@ export const getTimetableForStudent = (branch, batch) => {
     return slot.batchScope === 'ALL' || slot.batchScope === batch;
   });
 
-  // Enrich slots with subject details
+  // Enrich slots with subject details and expand hourly sub-units
   const enrichedSlots = filteredSlots.map((slot, index) => {
     const subject = subjectsMap.get(slot.code) || {
       name: slot.code,
@@ -46,6 +46,28 @@ export const getTimetableForStudent = (branch, batch) => {
       type: 'Lecture',
       teacher: 'Faculty',
     };
+
+    // Calculate duration in minutes
+    const [startH, startM] = slot.startTime.split(':').map(Number);
+    const [endH, endM] = slot.endTime.split(':').map(Number);
+    const deltaMinutes = (endH * 60 + (endM || 0)) - (startH * 60 + (startM || 0));
+
+    // Strict validation: must be > 0 and exact multiple of 60 minutes
+    const isValidWholeHour = deltaMinutes > 0 && deltaMinutes % 60 === 0;
+    const duration = isValidWholeHour ? deltaMinutes / 60 : 1;
+
+    // Generate hourly sub-units array
+    const hours = [];
+    for (let h = 0; h < duration; h++) {
+      const hStart = String(startH + h).padStart(2, '0') + ':' + String(startM || 0).padStart(2, '0');
+      const hEnd = String(startH + h + 1).padStart(2, '0') + ':' + String(startM || 0).padStart(2, '0');
+      hours.push({
+        hourIndex: h + 1,
+        startTime: hStart,
+        endTime: hEnd,
+        label: duration > 1 ? `Hour ${h + 1} (${hStart} - ${hEnd})` : `${hStart} - ${hEnd}`,
+      });
+    }
 
     return {
       id: `${branch}_${batch}_d${slot.dayOfWeek}_${slot.startTime}_${index}`,
@@ -60,6 +82,9 @@ export const getTimetableForStudent = (branch, batch) => {
       room: slot.room,
       isBatchSpecific: slot.batchScope !== 'ALL',
       batchScope: slot.batchScope,
+      duration: duration,
+      hours: hours,
+      isInvalidDuration: !isValidWholeHour,
     };
   });
 

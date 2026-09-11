@@ -190,6 +190,38 @@ export const AttendanceAnalyticsView = () => {
             </div>
           </div>
         </div>
+
+        {/* Overall Bunk / Recovery Calculator Action Guidance Banner */}
+        {overall.totalConducted > 0 && (
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '12px 16px',
+              borderRadius: 'var(--radius-sm)',
+              background: overall.status === 'SAFE' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid ' + (overall.status === 'SAFE' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'),
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {overall.status === 'SAFE' ? (
+                <CheckCircle size={18} color="var(--color-present)" />
+              ) : (
+                <AlertTriangle size={18} color="var(--color-absent)" />
+              )}
+              <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                Overall Guidance: {overall.guidanceText}
+              </span>
+            </div>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Based on overall 75.0% target
+            </span>
+          </div>
+        )}
       </Card>
 
       {/* Subject-wise Breakdown Grid */}
@@ -247,6 +279,24 @@ export const AttendanceAnalyticsView = () => {
                     />
                   </div>
                 </div>
+
+                {/* Bunk / Recovery Guidance Pill */}
+                {sub.conductedCount > 0 && (
+                  <div
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: sub.status === 'SAFE' ? 'var(--color-present)' : 'var(--color-absent)',
+                      padding: '4px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: sub.status === 'SAFE' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid ' + (sub.status === 'SAFE' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'),
+                      width: 'fit-content',
+                    }}
+                  >
+                    {sub.guidanceText}
+                  </div>
+                )}
 
                 {/* Detailed Counts Footer */}
                 <div style={{ display: 'flex', gap: '16px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
