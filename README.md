@@ -2,6 +2,10 @@
 
 > A student-focused attendance tracking web application for managing attendance, academic information, timetables and attendance analytics.
 
+## Live Demo
+
+[Open the live Attendance Tracker](https://attendance-tracker-phi-inky.vercel.app/)
+
 ![React](https://img.shields.io/badge/React-18.3-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![Vite](https://img.shields.io/badge/Vite-6.1-646CFF?style=for-the-badge&logo=vite&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
@@ -13,7 +17,7 @@
 
 ## Project Links
 
-- **Live Demo**: Not deployed yet
+- **Live Demo**: [https://attendance-tracker-phi-inky.vercel.app/](https://attendance-tracker-phi-inky.vercel.app/)
 - **GitHub Repository**: [https://github.com/Purvpatel1/attendance-tracker](https://github.com/Purvpatel1/attendance-tracker)
 
 ---
