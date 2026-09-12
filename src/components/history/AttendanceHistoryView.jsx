@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { getTimetableForStudent } from '../../services/timetableService';
-import { fetchStudentLogs, getSubjectUuid } from '../../services/attendanceService';
+import { fetchStudentLogsPaginated, getSubjectUuid } from '../../services/attendanceService';
 import { Card } from '../common/Card';
 import { Badge } from '../common/Badge';
 import { Spinner } from '../common/Spinner';
@@ -18,6 +18,8 @@ import {
   AlertCircle,
   Edit2,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 export const AttendanceHistoryView = () => {
@@ -35,6 +37,11 @@ export const AttendanceHistoryView = () => {
   // Edit Modal State
   const [editingLog, setEditingLog] = useState(null);
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(0); // 0-indexed
+  const [pageSize] = useState(20);
+  const [totalCount, setTotalCount] = useState(0);
+
   // Filters State
   const [selectedSubject, setSelectedSubject] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
@@ -42,7 +49,7 @@ export const AttendanceHistoryView = () => {
   const [customDate, setCustomDate] = useState('');
   const [sortOrder, setSortOrder] = useState('DESC'); // 'DESC' (Newest first) | 'ASC' (Oldest first)
 
-  const loadHistoryData = useCallback(async (showLoadingSpinner = true) => {
+  const loadHistoryData = useCallback(async (showLoadingSpinner = true, pageToFetch = currentPage) => {
     if (!user?.id) {
       setLoading(false);
       return;
@@ -54,8 +61,23 @@ export const AttendanceHistoryView = () => {
     setError(null);
 
     try {
-      // 1. Fetch all raw logs from Supabase
-      const fetchedLogs = await fetchStudentLogs(user.id);
+      // 1. Fetch paginated records directly from Supabase with SQL-level filters
+      const { data: fetchedLogs, count, error: fetchError } = await fetchStudentLogsPaginated(user.id, {
+        page: pageToFetch,
+        pageSize,
+        selectedSubject,
+        selectedStatus,
+        selectedDateRange,
+        customDate,
+        sortOrder,
+        branch,
+      });
+
+      if (fetchError) {
+        setError('Failed to load attendance history. Please check your internet connection.');
+        setLoading(false);
+        return;
+      }
 
       // 2. Build Subject UUID map for fast lookup
       const subjectMap = new Map();
@@ -86,6 +108,13 @@ export const AttendanceHistoryView = () => {
       });
 
       setEnrichedLogs(enriched);
+      setTotalCount(count);
+
+      // Edge case: if current page is beyond total count after deletion, fall back one page
+      const maxPage = Math.max(0, Math.ceil(count / pageSize) - 1);
+      if (pageToFetch > maxPage && maxPage >= 0) {
+        setCurrentPage(maxPage);
+      }
     } catch (err) {
       console.error('Error loading attendance history:', err);
       setError('Failed to load attendance history. Please check your internet connection.');
@@ -94,21 +123,21 @@ export const AttendanceHistoryView = () => {
         setLoading(false);
       }
     }
-  }, [user?.id, branch, batch, timetableData.subjects]);
+  }, [user?.id, branch, batch, timetableData.subjects, currentPage, pageSize, selectedSubject, selectedStatus, selectedDateRange, customDate, sortOrder]);
 
   useEffect(() => {
-    loadHistoryData(true);
+    loadHistoryData(true, currentPage);
 
     // Global event listener for attendance updates across components
     const handleGlobalUpdate = () => {
-      loadHistoryData(false);
+      loadHistoryData(false, currentPage);
     };
 
     window.addEventListener('attendance-updated', handleGlobalUpdate);
     return () => {
       window.removeEventListener('attendance-updated', handleGlobalUpdate);
     };
-  }, [loadHistoryData]);
+  }, [loadHistoryData, currentPage]);
 
   // Handle Edit/Unmark success from modal
   const handleModalSuccess = (resultPayload, actionType) => {
@@ -120,8 +149,14 @@ export const AttendanceHistoryView = () => {
       setToastMessage('Attendance status updated successfully.');
     } else if (actionType === 'DELETE') {
       const deletedId = resultPayload;
-      setEnrichedLogs((prev) => prev.filter((item) => item.id !== deletedId));
+      const remainingLogs = enrichedLogs.filter((item) => item.id !== deletedId);
+      setEnrichedLogs(remainingLogs);
       setToastMessage('Attendance record unmarked successfully.');
+
+      // If current page becomes empty after deleting last row and page > 0, move back one page
+      if (remainingLogs.length === 0 && currentPage > 0) {
+        setCurrentPage((prev) => Math.max(0, prev - 1));
+      }
     }
 
     // Auto dismiss toast after 4 seconds
@@ -129,79 +164,37 @@ export const AttendanceHistoryView = () => {
       setToastMessage(null);
     }, 4000);
 
-    // Refresh from Supabase to guarantee state consistency across pages
-    loadHistoryData(false);
+    // Note: Removed redundant loadHistoryData(false) call to prevent duplicate refetches.
+    // The global 'attendance-updated' CustomEvent listener handles the single background refetch.
   };
 
-  // Apply Filters and Sorting dynamically
-  const filteredLogs = useMemo(() => {
-    let result = [...enrichedLogs];
+  // Filter change handlers (resets page to 0)
+  const handleSubjectChange = (val) => {
+    setSelectedSubject(val);
+    setCurrentPage(0);
+  };
 
-    // Subject Filter
-    if (selectedSubject !== 'ALL') {
-      result = result.filter((l) => l.subjectCode === selectedSubject || l.subject_id === selectedSubject);
-    }
+  const handleStatusChange = (val) => {
+    setSelectedStatus(val);
+    setCurrentPage(0);
+  };
 
-    // Status Filter
-    if (selectedStatus !== 'ALL') {
-      result = result.filter((l) => l.status === selectedStatus);
-    }
+  const handleDateRangeChange = (val) => {
+    setSelectedDateRange(val);
+    setCustomDate('');
+    setCurrentPage(0);
+  };
 
-    // Custom Date Filter
-    if (customDate) {
-      result = result.filter((l) => l.date === customDate);
-    } else if (selectedDateRange !== 'ALL') {
-      const today = new Date();
+  const handleCustomDateChange = (val) => {
+    setCustomDate(val);
+    setSelectedDateRange('ALL');
+    setCurrentPage(0);
+  };
 
-      if (selectedDateRange === '7DAYS') {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(today.getDate() - 7);
-        result = result.filter((l) => new Date(l.date) >= sevenDaysAgo);
-      } else if (selectedDateRange === '30DAYS') {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(today.getDate() - 30);
-        result = result.filter((l) => new Date(l.date) >= thirtyDaysAgo);
-      } else if (selectedDateRange === 'THIS_MONTH') {
-        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        result = result.filter((l) => new Date(l.date) >= firstDayOfMonth);
-      }
-    }
-
-    // Sorting (Newest First vs Oldest First)
-    result.sort((a, b) => {
-      const dateA = new Date(a.date).getTime();
-      const dateB = new Date(b.date).getTime();
-      if (dateA !== dateB) {
-        return sortOrder === 'DESC' ? dateB - dateA : dateA - dateB;
-      }
-      // Secondary sort by hour_index
-      const hourA = Number(a.hour_index || 1);
-      const hourB = Number(b.hour_index || 1);
-      return sortOrder === 'DESC' ? hourB - hourA : hourA - hourB;
-    });
-
-    return result;
-  }, [enrichedLogs, selectedSubject, selectedStatus, selectedDateRange, customDate, sortOrder]);
-
-  // Summary Metrics calculation for filtered logs
-  const summaryCounts = useMemo(() => {
-    let present = 0;
-    let absent = 0;
-    let cancelled = 0;
-
-    filteredLogs.forEach((l) => {
-      if (l.status === 'PRESENT') present++;
-      else if (l.status === 'ABSENT') absent++;
-      else if (l.status === 'CANCELLED') cancelled++;
-    });
-
-    return {
-      total: filteredLogs.length,
-      present,
-      absent,
-      cancelled,
-    };
-  }, [filteredLogs]);
+  const handleSortOrderToggle = () => {
+    setSortOrder((prev) => (prev === 'DESC' ? 'ASC' : 'DESC'));
+    setCurrentPage(0);
+  };
 
   const clearFilters = () => {
     setSelectedSubject('ALL');
@@ -209,7 +202,28 @@ export const AttendanceHistoryView = () => {
     setSelectedDateRange('ALL');
     setCustomDate('');
     setSortOrder('DESC');
+    setCurrentPage(0);
   };
+
+  // Summary Metrics calculation for displayed logs & total count
+  const summaryCounts = useMemo(() => {
+    let present = 0;
+    let absent = 0;
+    let cancelled = 0;
+
+    enrichedLogs.forEach((l) => {
+      if (l.status === 'PRESENT') present++;
+      else if (l.status === 'ABSENT') absent++;
+      else if (l.status === 'CANCELLED') cancelled++;
+    });
+
+    return {
+      total: totalCount,
+      present,
+      absent,
+      cancelled,
+    };
+  }, [totalCount, enrichedLogs]);
 
   const getStatusBadge = (status) => {
     if (status === 'PRESENT') {
@@ -346,7 +360,7 @@ export const AttendanceHistoryView = () => {
               id="history-subject-filter"
               className="select-field"
               value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
+              onChange={(e) => handleSubjectChange(e.target.value)}
             >
               <option value="ALL">All Subjects</option>
               {(timetableData.subjects || []).map((sub) => (
@@ -364,7 +378,7 @@ export const AttendanceHistoryView = () => {
               id="history-status-filter"
               className="select-field"
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => handleStatusChange(e.target.value)}
             >
               <option value="ALL">All Statuses</option>
               <option value="PRESENT">PRESENT</option>
@@ -380,10 +394,7 @@ export const AttendanceHistoryView = () => {
               id="history-range-filter"
               className="select-field"
               value={selectedDateRange}
-              onChange={(e) => {
-                setSelectedDateRange(e.target.value);
-                setCustomDate('');
-              }}
+              onChange={(e) => handleDateRangeChange(e.target.value)}
             >
               <option value="ALL">All Time</option>
               <option value="7DAYS">Last 7 Days</option>
@@ -400,10 +411,7 @@ export const AttendanceHistoryView = () => {
               type="date"
               className="input-field"
               value={customDate}
-              onChange={(e) => {
-                setCustomDate(e.target.value);
-                setSelectedDateRange('ALL');
-              }}
+              onChange={(e) => handleCustomDateChange(e.target.value)}
             />
           </div>
 
@@ -414,7 +422,7 @@ export const AttendanceHistoryView = () => {
               type="button"
               className="btn btn-outline"
               style={{ width: '100%', justifyContent: 'space-between' }}
-              onClick={() => setSortOrder((prev) => (prev === 'DESC' ? 'ASC' : 'DESC'))}
+              onClick={handleSortOrderToggle}
             >
               <span>{sortOrder === 'DESC' ? 'Newest First' : 'Oldest First'}</span>
               <ArrowUpDown size={16} />
@@ -440,9 +448,13 @@ export const AttendanceHistoryView = () => {
       {/* 3. ATTENDANCE RECORD LIST */}
       <Card
         title="Marked Logs History"
-        subtitle={`Showing ${filteredLogs.length} of ${enrichedLogs.length} marked attendance records`}
+        subtitle={
+          totalCount === 0
+            ? 'No attendance records'
+            : `Showing ${currentPage * pageSize + 1}–${Math.min((currentPage + 1) * pageSize, totalCount)} of ${totalCount} records`
+        }
       >
-        {enrichedLogs.length === 0 ? (
+        {totalCount === 0 && selectedSubject === 'ALL' && selectedStatus === 'ALL' && selectedDateRange === 'ALL' && !customDate ? (
           /* Empty State: No logs in database */
           <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
             <History size={36} style={{ marginBottom: '10px', opacity: 0.5 }} />
@@ -451,7 +463,7 @@ export const AttendanceHistoryView = () => {
               Select classes in today's Schedule tab to mark your attendance and build your history.
             </p>
           </div>
-        ) : filteredLogs.length === 0 ? (
+        ) : enrichedLogs.length === 0 ? (
           /* Empty State: Filter produced 0 results */
           <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
             <SearchX size={36} style={{ marginBottom: '10px', opacity: 0.5 }} />
@@ -466,7 +478,7 @@ export const AttendanceHistoryView = () => {
         ) : (
           /* List of Enriched Logs */
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' }}>
-            {filteredLogs.map((log) => (
+            {enrichedLogs.map((log) => (
               <div
                 key={log.id}
                 style={{
@@ -543,6 +555,56 @@ export const AttendanceHistoryView = () => {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 4. SERVER-SIDE PAGINATION CONTROLS */}
+        {totalCount > 0 && (
+          <div
+            style={{
+              marginTop: '18px',
+              paddingTop: '14px',
+              borderTop: '1px solid var(--border-subtle)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+          >
+            <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+              Showing {currentPage * pageSize + 1}–{Math.min((currentPage + 1) * pageSize, totalCount)} of {totalCount} records
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
+                disabled={currentPage === 0 || loading}
+                aria-label="Previous Page"
+                style={{ minHeight: '36px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <ChevronLeft size={16} />
+                <span>Previous</span>
+              </Button>
+
+              <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-main)', padding: '0 4px' }}>
+                Page {currentPage + 1} of {Math.max(1, Math.ceil(totalCount / pageSize))}
+              </span>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((prev) => prev + 1)}
+                disabled={(currentPage + 1) * pageSize >= totalCount || loading}
+                aria-label="Next Page"
+                style={{ minHeight: '36px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <span>Next</span>
+                <ChevronRight size={16} />
+              </Button>
+            </div>
           </div>
         )}
       </Card>

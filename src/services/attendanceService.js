@@ -145,6 +145,105 @@ export async function fetchStudentLogs(studentId) {
 }
 
 /**
+ * Fetches paginated and filtered attendance logs for a student directly from Supabase.
+ * Applies SQL-level range pagination, status filtering, date range filtering, and subject filtering.
+ */
+export async function fetchStudentLogsPaginated(studentId, options = {}) {
+  if (!studentId) {
+    return { data: [], count: 0, error: null };
+  }
+
+  const {
+    page = 0,
+    pageSize = 20,
+    selectedSubject = 'ALL',
+    selectedStatus = 'ALL',
+    selectedDateRange = 'ALL',
+    customDate = '',
+    startDate = '',
+    endDate = '',
+    sortOrder = 'DESC',
+    branch = '',
+  } = options;
+
+  try {
+    let query = supabase
+      .from('attendance_logs')
+      .select('*', { count: 'exact' })
+      .eq('student_id', studentId);
+
+    // 1. Status Filter in SQL
+    if (selectedStatus && selectedStatus !== 'ALL') {
+      query = query.eq('status', selectedStatus);
+    }
+
+    // 2. Subject Filter in SQL
+    if (selectedSubject && selectedSubject !== 'ALL') {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedSubject);
+      if (isUuid) {
+        query = query.eq('subject_id', selectedSubject);
+      } else if (branch) {
+        const subjectUuid = await getSubjectUuid(branch, selectedSubject);
+        query = query.eq('subject_id', subjectUuid);
+      }
+    }
+
+    // 3. Date Filters in SQL
+    if (customDate) {
+      query = query.eq('date', customDate);
+    } else if (selectedDateRange && selectedDateRange !== 'ALL') {
+      const today = new Date();
+      if (selectedDateRange === '7DAYS') {
+        const d = new Date();
+        d.setDate(today.getDate() - 7);
+        const yyyyMmDd = d.toISOString().split('T')[0];
+        query = query.gte('date', yyyyMmDd);
+      } else if (selectedDateRange === '30DAYS') {
+        const d = new Date();
+        d.setDate(today.getDate() - 30);
+        const yyyyMmDd = d.toISOString().split('T')[0];
+        query = query.gte('date', yyyyMmDd);
+      } else if (selectedDateRange === 'THIS_MONTH') {
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        const yyyyMmDd = firstDay.toISOString().split('T')[0];
+        query = query.gte('date', yyyyMmDd);
+      }
+    } else {
+      if (startDate) query = query.gte('date', startDate);
+      if (endDate) query = query.lte('date', endDate);
+    }
+
+    // 4. Stable Sorting in SQL
+    const isAscending = sortOrder === 'ASC';
+    query = query
+      .order('date', { ascending: isAscending })
+      .order('hour_index', { ascending: isAscending })
+      .order('id', { ascending: isAscending });
+
+    // 5. Server-Side Range Pagination
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+    query = query.range(from, to);
+
+    const { data, count, error } = await query;
+
+    if (error) {
+      console.warn('Could not fetch paginated attendance logs from Supabase:', error.message);
+      return { data: [], count: 0, error: error.message };
+    }
+
+    return {
+      data: data || [],
+      count: typeof count === 'number' ? count : (data || []).length,
+      error: null,
+    };
+  } catch (err) {
+    console.warn('Network or database error fetching paginated attendance logs:', err.message);
+    return { data: [], count: 0, error: err.message };
+  }
+}
+
+/**
  * Returns today's calendar date string in YYYY-MM-DD format for Asia/Kolkata timezone.
  * Avoids toISOString().split('T')[0] which returns UTC date.
  */
