@@ -316,6 +316,34 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Sign In with Google OAuth
+  const signInWithGoogle = async () => {
+    setError(null);
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error('Supabase client is not configured. Please check your .env file.');
+      }
+
+      const { data, error: oauthErr } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+        },
+      });
+
+      if (oauthErr) {
+        console.error('Raw Supabase Google OAuth Error:', oauthErr);
+        return { success: false, error: oauthErr.message || 'Failed to initialize Google sign-in.' };
+      }
+
+      return { success: true, data };
+    } catch (err) {
+      console.error('Google OAuth unexpected error:', err);
+      return { success: false, error: err.message || 'Failed to initialize Google sign-in.' };
+    }
+  };
+
   // Request Password Reset Email (Privacy-safe)
   const requestPasswordReset = async (email) => {
     setError(null);
@@ -443,6 +471,7 @@ export const AuthProvider = ({ children }) => {
     isPasswordRecovery,
     signUp,
     signIn,
+    signInWithGoogle,
     signOut,
     requestPasswordReset,
     updatePassword,
