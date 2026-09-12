@@ -11,6 +11,13 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
+  const profilePromisesRef = React.useRef(new Map());
+  const profileRef = React.useRef(profile);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
   // Fetch student DB profile from 'profiles' table
   const fetchStudentProfile = async (userId) => {
     try {
@@ -37,36 +44,55 @@ export const AuthProvider = ({ children }) => {
   const loadProfileForUser = async (authUser, fallbackMeta = null) => {
     if (!isSupabaseConfigured || !authUser?.id) return null;
 
-    // 1. Try to fetch existing DB profile
-    const existing = await fetchStudentProfile(authUser.id);
-    if (existing) {
-      return existing;
+    const userId = authUser.id;
+
+    // 1. If profile is already loaded in state for this user ID (and no custom fallback meta provided), reuse it
+    if (profileRef.current && profileRef.current.id === userId && !fallbackMeta) {
+      return profileRef.current;
     }
 
-    // 2. If DB row doesn't exist, construct from user_metadata or fallbackMeta
-    const meta = authUser.user_metadata || {};
-    const profileToSave = {
-      id: authUser.id,
-      full_name: fallbackMeta?.full_name || meta.full_name || 'Student',
-      roll_number: fallbackMeta?.roll_number || meta.roll_number || '',
-      branch: fallbackMeta?.branch || meta.branch || 'Computer Engineering (CE)',
-      batch: fallbackMeta?.batch || meta.batch || 'CE1',
-    };
+    // 2. If a profile request for this user ID is currently in-flight, await the existing Promise
+    if (profilePromisesRef.current.has(userId)) {
+      return profilePromisesRef.current.get(userId);
+    }
 
-    // 3. Upsert to DB table
-    try {
-      const { error: upsertErr } = await supabase
-        .from('profiles')
-        .upsert(profileToSave, { onConflict: 'id' });
+    // 3. Otherwise, execute fetch/upsert and track in-flight promise
+    const loadPromise = (async () => {
+      try {
+        const existing = await fetchStudentProfile(userId);
+        if (existing) {
+          return existing;
+        }
 
-      if (upsertErr) {
-        console.warn('Notice saving profile to DB:', upsertErr.message);
+        const meta = authUser.user_metadata || {};
+        const profileToSave = {
+          id: userId,
+          full_name: fallbackMeta?.full_name || meta.full_name || 'Student',
+          roll_number: fallbackMeta?.roll_number || meta.roll_number || '',
+          branch: fallbackMeta?.branch || meta.branch || 'Computer Engineering (CE)',
+          batch: fallbackMeta?.batch || meta.batch || 'CE1',
+        };
+
+        try {
+          const { error: upsertErr } = await supabase
+            .from('profiles')
+            .upsert(profileToSave, { onConflict: 'id' });
+
+          if (upsertErr) {
+            console.warn('Notice saving profile to DB:', upsertErr.message);
+          }
+        } catch (e) {
+          console.error('Error saving profile to DB:', e);
+        }
+
+        return profileToSave;
+      } finally {
+        profilePromisesRef.current.delete(userId);
       }
-    } catch (e) {
-      console.error('Error saving profile to DB:', e);
-    }
+    })();
 
-    return profileToSave;
+    profilePromisesRef.current.set(userId, loadPromise);
+    return loadPromise;
   };
 
   useEffect(() => {
@@ -389,6 +415,7 @@ export const AuthProvider = ({ children }) => {
       if (isSupabaseConfigured) {
         await supabase.auth.signOut();
       }
+      profilePromisesRef.current.clear();
       setUser(null);
       setProfile(null);
       setSession(null);
