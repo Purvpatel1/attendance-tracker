@@ -37,8 +37,8 @@ import {
 
 export const StudentDashboardView = ({ setActiveTab }) => {
   const { user, profile } = useAuth();
-  const branch = profile?.branch || 'Computer Engineering (CE)';
-  const batch = profile?.batch || 'CE1';
+  const branch = profile?.branch || '';
+  const batch = profile?.batch || '';
   const studentName = profile?.full_name || user?.email?.split('@')[0] || 'Student';
 
   const timetableData = getTimetableForStudent(branch, batch);

@@ -7,8 +7,8 @@ import { BookOpen, User, Target, Layers } from 'lucide-react';
 
 export const SubjectsDirectoryView = () => {
   const { profile } = useAuth();
-  const branch = profile?.branch || 'Computer Engineering (CE)';
-  const batch = profile?.batch || 'CE1';
+  const branch = profile?.branch || '';
+  const batch = profile?.batch || '';
 
   const subjects = getSubjectsForBranch(branch);
   const [filterType, setFilterType] = useState('ALL');

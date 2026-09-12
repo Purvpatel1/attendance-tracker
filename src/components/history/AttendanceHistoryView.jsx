@@ -24,8 +24,8 @@ import {
 
 export const AttendanceHistoryView = () => {
   const { user, profile } = useAuth();
-  const branch = profile?.branch || 'Computer Engineering (CE)';
-  const batch = profile?.batch || 'CE1';
+  const branch = profile?.branch || '';
+  const batch = profile?.batch || '';
 
   const timetableData = getTimetableForStudent(branch, batch);
 

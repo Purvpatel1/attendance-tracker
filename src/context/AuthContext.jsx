@@ -67,10 +67,10 @@ export const AuthProvider = ({ children }) => {
         const meta = authUser.user_metadata || {};
         const profileToSave = {
           id: userId,
-          full_name: fallbackMeta?.full_name || meta.full_name || 'Student',
+          full_name: fallbackMeta?.full_name || meta.full_name || meta.name || '',
           roll_number: fallbackMeta?.roll_number || meta.roll_number || '',
-          branch: fallbackMeta?.branch || meta.branch || 'Computer Engineering (CE)',
-          batch: fallbackMeta?.batch || meta.batch || 'CE1',
+          branch: fallbackMeta?.branch || meta.branch || '',
+          batch: fallbackMeta?.batch || meta.batch || '',
         };
 
         try {
@@ -462,6 +462,56 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Update student profile details in Supabase & React state
+  const updateProfile = async ({ fullName, rollNumber, branch, batch }) => {
+    setError(null);
+    if (!user?.id) {
+      return { success: false, error: 'User is not authenticated.' };
+    }
+
+    const trimmedName = (fullName || '').trim();
+    const trimmedRoll = (rollNumber || '').trim();
+
+    if (!trimmedName || !trimmedRoll || !branch || !batch) {
+      return { success: false, error: 'Please fill in all required profile fields.' };
+    }
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error('Supabase client is not configured.');
+      }
+
+      const profilePayload = {
+        id: user.id,
+        full_name: trimmedName,
+        roll_number: trimmedRoll,
+        branch,
+        batch,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error: upsertErr } = await supabase
+        .from('profiles')
+        .upsert(profilePayload, { onConflict: 'id' })
+        .select()
+        .single();
+
+      if (upsertErr) {
+        console.error('Raw Supabase updateProfile error:', upsertErr);
+        return { success: false, error: upsertErr.message || 'Failed to update profile.' };
+      }
+
+      const updatedProfile = data || profilePayload;
+      setProfile(updatedProfile);
+      profileRef.current = updatedProfile;
+
+      return { success: true, profile: updatedProfile };
+    } catch (err) {
+      console.error('updateProfile unexpected error:', err);
+      return { success: false, error: err.message || 'Something went wrong while saving your profile.' };
+    }
+  };
+
   const value = {
     user,
     profile,
@@ -472,6 +522,7 @@ export const AuthProvider = ({ children }) => {
     signUp,
     signIn,
     signInWithGoogle,
+    updateProfile,
     signOut,
     requestPasswordReset,
     updatePassword,

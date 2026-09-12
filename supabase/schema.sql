@@ -212,10 +212,10 @@ BEGIN
   INSERT INTO public.profiles (id, full_name, roll_number, branch, batch)
   VALUES (
     NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', 'Student'),
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', ''),
     COALESCE(NEW.raw_user_meta_data->>'roll_number', ''),
-    COALESCE(NEW.raw_user_meta_data->>'branch', 'Computer Engineering (CE)'),
-    COALESCE(NEW.raw_user_meta_data->>'batch', 'CE1')
+    COALESCE(NEW.raw_user_meta_data->>'branch', ''),
+    COALESCE(NEW.raw_user_meta_data->>'batch', '')
   )
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;

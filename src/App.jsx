@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthPage } from './components/auth/AuthPage';
+import { CompleteProfilePage } from './components/profile/CompleteProfilePage';
+import { isProfileComplete } from './utils/profileUtils';
 import { AppHeader } from './components/layout/AppHeader';
 import { Sidebar } from './components/layout/Sidebar';
 import { Navigation } from './components/layout/Navigation';
@@ -47,7 +49,7 @@ const DashboardContent = () => {
 };
 
 const AppMain = () => {
-  const { user, loading, isPasswordRecovery } = useAuth();
+  const { user, profile, loading, isPasswordRecovery } = useAuth();
 
   if (loading) {
     return (
@@ -61,7 +63,15 @@ const AppMain = () => {
     return <AuthPage initialMode="reset" />;
   }
 
-  return user ? <DashboardContent /> : <AuthPage />;
+  if (!user) {
+    return <AuthPage />;
+  }
+
+  if (!isProfileComplete(profile)) {
+    return <CompleteProfilePage />;
+  }
+
+  return <DashboardContent />;
 };
 
 export default function App() {
