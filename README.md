@@ -1,144 +1,136 @@
 <div align="center">
 
-# 📊 Attendance Tracker
-
-### A smarter way to track attendance, subjects, timetables and academic progress.
+<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=28&duration=3000&pause=900&color=61DAFB&center=true&vCenter=true&width=700&lines=Welcome+to+Attendance+Tracker;Track+Attendance+Without+The+Confusion;Built+For+Students%2C+By+Students" alt="Typing animation" />
 
 <p>
-  <a href="https://attendance-tracker-phi-inky.vercel.app/">
-    <strong>🚀 Live Demo</strong>
-  </a>
-  &nbsp; • &nbsp;
-  <a href="#-features">Features</a>
-  &nbsp; • &nbsp;
-  <a href="#-getting-started">Setup</a>
+  <strong>A modern student-focused attendance tracking platform.</strong>
+  <br />
+  Manage attendance, subjects, timetables and academic progress from one place.
 </p>
 
-<img src="https://img.shields.io/badge/React-18.3-61DAFB?style=for-the-badge&logo=react&logoColor=black" />
-<img src="https://img.shields.io/badge/Vite-6.1-646CFF?style=for-the-badge&logo=vite&logoColor=white" />
-<img src="https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white" />
-<img src="https://img.shields.io/badge/Status-Live-success?style=for-the-badge" />
+<br />
+
+<a href="https://attendance-tracker-phi-inky.vercel.app/">
+  <img src="https://img.shields.io/badge/🚀%20Live%20Demo-Visit%20App-61DAFB?style=for-the-badge&labelColor=111827" alt="Live Demo" />
+</a>
+<a href="https://github.com/Purvpatel1/attendance-tracker">
+  <img src="https://img.shields.io/badge/💻%20Source%20Code-GitHub-181717?style=for-the-badge&logo=github" alt="Source Code" />
+</a>
 
 <br />
 <br />
 
-<img src="./public/screenshots/dashboard.png" alt="Attendance Tracker Dashboard" width="900" />
+<img src="https://img.shields.io/badge/React-18.3-61DAFB?style=flat-square&logo=react&logoColor=black" />
+<img src="https://img.shields.io/badge/Vite-6.1-646CFF?style=flat-square&logo=vite&logoColor=white" />
+<img src="https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?style=flat-square&logo=javascript&logoColor=black" />
+<img src="https://img.shields.io/badge/Supabase-Backend-3ECF8E?style=flat-square&logo=supabase&logoColor=white" />
+<img src="https://img.shields.io/badge/PostgreSQL-Database-4169E1?style=flat-square&logo=postgresql&logoColor=white" />
+<img src="https://img.shields.io/badge/Status-Live-success?style=flat-square" />
+
+<br />
+<br />
+
+<img src="./public/screenshots/dashboard.png" alt="Attendance Tracker Dashboard" width="650" />
 
 </div>
 
 ---
 
-## 🧠 What is Attendance Tracker?
+## ⚡ About the Project
 
-**Attendance Tracker** is a student-focused web application built to make attendance management simple, clear and less stressful.
+**Attendance Tracker** is a clean and practical web application designed to help students manage their academic attendance without depending on spreadsheets, manual calculations or questionable memory.
 
-Instead of manually calculating attendance, checking multiple timetables or guessing how many lectures you can miss, students can manage everything from one place.
+It brings attendance, subjects, timetables, analytics and history into one simple dashboard.
 
-> **Track your attendance. Understand your academics. Stay above the required percentage.**
-
-Built with a clean interface, real account-based authentication and branch-specific academic data.
+> **Know your attendance. Plan your lectures. Stay above the required percentage.**
 
 ---
 
-## ✨ Features
+## ✨ What You Can Do
 
-### 🔐 Secure Student Authentication
-
-* Google OAuth login
-* Email and password authentication
-* Account-based student access
-* Protected application routes
-
-### 🧾 Mandatory Student Profile
-
-Students complete their profile during onboarding:
-
-* Full name
-* Roll number
-* Branch
-* Practical batch
-
-No random default values. No mystery profile data. Humanity has suffered enough from badly configured forms.
-
-### 📈 Smart Dashboard
-
-* Overall attendance percentage
-* Subject-wise attendance cards
-* Quick attendance marking
-* Academic overview at a glance
-* Visual attendance status
-
-### 📊 Attendance Analytics
-
-* Subject-wise attendance breakdown
-* Minimum attendance threshold tracking
-* Attendance target calculations
-* Helps students understand how many lectures they can attend or miss
-
-### 🗓️ Timetable Management
-
-* Daily timetable
-* Weekly timetable
-* Branch-specific schedules
-* Practical batch-based timetable filtering
-* Automatic subject mapping
-
-### 📚 Subjects Directory
-
-View academic subject information including:
-
-* Subject name
-* Course code
-* Credits
-* Subject type
-* Faculty details
-
-### 🕘 Attendance History
-
-* View previously marked attendance
-* Paginated attendance records
-* Filter attendance history
-* Review subject-wise records
-
-### 🎨 Modern User Experience
-
-* Light and dark mode
-* Responsive design
-* Clean student-focused interface
-* Mobile-friendly layouts
-* Fast Vite-powered development
+<table>
+  <tr>
+    <td width="50%">
+      <h3>🔐 Student Authentication</h3>
+      Login using Google OAuth or Email/Password authentication with protected student access.
+    </td>
+    <td width="50%">
+      <h3>🧾 Smart Onboarding</h3>
+      Complete your profile with name, roll number, branch and practical batch.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>📊 Attendance Analytics</h3>
+      Track overall percentage, subject-wise attendance and required attendance targets.
+    </td>
+    <td width="50%">
+      <h3>🗓️ Dynamic Timetable</h3>
+      View daily and weekly schedules based on your branch and practical batch.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>📚 Subjects Directory</h3>
+      Access subject names, course codes, credits, types and faculty information.
+    </td>
+    <td width="50%">
+      <h3>🕘 Attendance History</h3>
+      Review previous attendance records with pagination and filtering.
+    </td>
+  </tr>
+</table>
 
 ---
 
-## 🖥️ Screenshots
+## 🎨 Interface Preview
 
-### Dashboard
+<div align="center">
 
-<img src="./public/screenshots/dashboard.png" alt="Dashboard" width="100%" />
+<table>
+  <tr>
+    <td align="center">
+      <img src="./public/screenshots/dashboard.png" width="250" alt="Dashboard" />
+      <br />
+      <sub><b>Dashboard</b></sub>
+    </td>
+    <td align="center">
+      <img src="./public/screenshots/analytics.png" width="250" alt="Analytics" />
+      <br />
+      <sub><b>Analytics</b></sub>
+    </td>
+    <td align="center">
+      <img src="./public/screenshots/history.png" width="250" alt="History" />
+      <br />
+      <sub><b>History</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="./public/screenshots/schedule.png" width="250" alt="Schedule" />
+      <br />
+      <sub><b>Schedule</b></sub>
+    </td>
+    <td align="center">
+      <img src="./public/screenshots/subjects.png" width="250" alt="Subjects" />
+      <br />
+      <sub><b>Subjects</b></sub>
+    </td>
+    <td align="center">
+      <img src="./public/screenshots/login.png" width="250" alt="Login" />
+      <br />
+      <sub><b>Login</b></sub>
+    </td>
+  </tr>
+</table>
 
-### Schedule
-
-<img src="./public/screenshots/schedule.png" alt="Schedule" width="100%" />
-
-### Subjects
-
-<img src="./public/screenshots/subjects.png" alt="Subjects" width="100%" />
-
-### Analytics
-
-<img src="./public/screenshots/analytics.png" alt="Analytics" width="100%" />
-
-### Attendance History
-
-<img src="./public/screenshots/history.png" alt="Attendance History" width="100%" />
-
-### Login
-
-<img src="./public/screenshots/login.png" alt="Login Page" width="100%" />
+</div>
 
 ---
 
-## 🔄 How It Works
+## 🧭 How It Works
+
+<div align="center">
 
 ```text
 Create Account
@@ -151,44 +143,50 @@ View Subjects and Timetable
       ↓
 Mark Daily Attendance
       ↓
-Track Analytics and Attendance History
+Track Analytics and History
 ```
 
-The selected branch and practical batch determine the student's subjects and timetable automatically.
+</div>
+
+The selected branch and practical batch automatically determine the student's academic subjects and timetable.
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Technology         | Purpose                             |
-| ------------------ | ----------------------------------- |
-| React 18.3         | Frontend UI                         |
-| Vite 6.1           | Development and build tooling       |
-| JavaScript ES6+    | Application logic                   |
-| CSS3               | Styling and responsive layouts      |
-| Supabase           | Authentication and backend services |
-| PostgreSQL         | Database                            |
-| Google OAuth       | Authentication provider             |
-| Row Level Security | Data protection                     |
+<div align="center">
+
+| Layer            | Technology                   |
+| ---------------- | ---------------------------- |
+| Frontend         | React 18.3                   |
+| Build Tool       | Vite 6.1                     |
+| Language         | JavaScript ES6+              |
+| Styling          | CSS3                         |
+| Backend Services | Supabase                     |
+| Database         | PostgreSQL                   |
+| Authentication   | Google OAuth, Email/Password |
+| Security         | Row Level Security           |
+
+</div>
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Clone the Repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/Purvpatel1/attendance-tracker.git
 cd attendance-tracker
 ```
 
-### 2. Install Dependencies
+### 2. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Configure Environment Variables
+### 3. Create environment variables
 
 Create a `.env` file in the root directory:
 
@@ -199,29 +197,31 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 ### 4. Configure Supabase
 
-1. Create a Supabase project.
-2. Add the required database tables using:
+Use the database schema located at:
 
 ```text
 supabase/schema.sql
 ```
 
-3. Apply the onboarding migration:
+Apply the onboarding migration:
 
 ```text
 supabase/migrations/20260913_fix_onboarding_trigger.sql
 ```
 
-4. Configure authentication providers.
-5. Enable the required Row Level Security policies.
+Also configure:
 
-### 5. Start the Development Server
+* Authentication providers
+* Database tables
+* Row Level Security policies
+
+### 5. Run the project
 
 ```bash
 npm run dev
 ```
 
-The application will be available at:
+Open the local development server:
 
 ```text
 http://localhost:5173
@@ -229,25 +229,33 @@ http://localhost:5173
 
 ---
 
-## 🌐 Live Application
+## 🌐 Live Demo
 
-Try the deployed application:
+<div align="center">
 
-### [🚀 Open Attendance Tracker](https://attendance-tracker-phi-inky.vercel.app/)
+<a href="https://attendance-tracker-phi-inky.vercel.app/">
+
+<img src="https://img.shields.io/badge/OPEN%20ATTENDANCE%20TRACKER-61DAFB?style=for-the-badge&logo=vercel&logoColor=black&labelColor=111827" alt="Open Attendance Tracker" />
+
+</a>
+
+</div>
 
 ---
 
-## 🎯 Project Goals
+## 🎯 Why This Project?
 
-Attendance Tracker was built to solve common student problems:
+Students often have to deal with:
 
-* Manually calculating attendance
-* Losing track of subject-wise percentages
-* Checking multiple timetable documents
-* Forgetting attendance history
-* Not knowing whether attendance is above the required threshold
+* Manual attendance calculations
+* Multiple timetable documents
+* Unclear subject-wise percentages
+* Difficulty tracking attendance history
+* Not knowing how many lectures they can miss
 
-The goal is simple: **make academic attendance easier to understand and manage.**
+Attendance Tracker brings these tasks together in a single interface.
+
+**Less confusion. More control. Better attendance planning.**
 
 ---
 
@@ -256,24 +264,5 @@ The goal is simple: **make academic attendance easier to understand and manage.*
 <div align="center">
 
 ### Purv Patel
-
-IT Engineering Student
-SVKM’s Shri Bhagubhai Mafatlal Polytechnic and College of Engineering
-
-<p>
-  <a href="https://github.com/Purvpatel1">
-    GitHub Profile
-  </a>
-</p>
-
-</div>
-
----
-
-<div align="center">
-
-### Built with React, Supabase and a suspicious amount of debugging.
-
-⭐ If you find this project useful, consider starring the repository.
 
 </div>
