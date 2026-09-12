@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Production build outputs
+dist/
+
+# Scratch & development test scripts
+scratch/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Git & IDE files
+.git/
+.gitignore
+.DS_Store
+*.log

@@ -1,0 +1,17 @@
+{
+  "short_name": "Attendance Hub",
+  "name": "Attendance Hub Student Portal",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any 192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0B0F17",
+  "theme_color": "#0B0F17",
+  "display": "standalone",
+  "orientation": "any"
+}

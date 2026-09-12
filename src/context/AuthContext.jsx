@@ -9,6 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   // Fetch student DB profile from 'profiles' table
   const fetchStudentProfile = async (userId) => {
@@ -71,6 +72,13 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let mounted = true;
 
+    // Check URL hash for password recovery token
+    if (typeof window !== 'undefined' && window.location.hash) {
+      if (window.location.hash.includes('type=recovery') || window.location.hash.includes('type=magiclink')) {
+        setIsPasswordRecovery(true);
+      }
+    }
+
     const initializeAuth = async () => {
       try {
         if (!isSupabaseConfigured) {
@@ -101,6 +109,11 @@ export const AuthProvider = ({ children }) => {
     if (isSupabaseConfigured) {
       const { data } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
         if (!mounted) return;
+
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true);
+        }
+
         setSession(currentSession);
         setUser(currentSession?.user || null);
 
@@ -126,9 +139,16 @@ export const AuthProvider = ({ children }) => {
   // Sign Up Student
   const signUp = async ({ email, password, fullName, rollNumber, branch, batch }) => {
     setError(null);
-    setLoading(true);
 
     const normalizedEmail = (email || '').trim().toLowerCase();
+
+    if (!normalizedEmail || !password || !fullName) {
+      return { success: false, error: 'Please fill in all required fields.' };
+    }
+
+    if (password.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters long.' };
+    }
 
     try {
       if (!isSupabaseConfigured) {
@@ -149,7 +169,17 @@ export const AuthProvider = ({ children }) => {
         },
       });
 
-      if (signUpErr) throw signUpErr;
+      if (signUpErr) {
+        console.error('Raw Supabase SignUp Error:', signUpErr);
+        const msg = signUpErr.message?.toLowerCase() || '';
+        if (msg.includes('already registered') || msg.includes('user already exists')) {
+          return { success: false, error: 'An account with this email already exists.' };
+        }
+        if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch')) {
+          return { success: false, error: 'Unable to connect. Please check your internet connection.' };
+        }
+        return { success: false, error: signUpErr.message || 'Registration failed.' };
+      }
 
       let currentSession = data?.session;
       let currentUser = data?.user;
@@ -180,13 +210,11 @@ export const AuthProvider = ({ children }) => {
         });
 
         setProfile(profileData);
-        setLoading(false);
         return { success: true, user: currentUser, session: currentSession, requiresConfirmation: false };
       }
 
-      // 4. If account created but no session provided (email confirmation required by Supabase Auth)
+      // 4. If account created but no session provided
       if (currentUser && !currentSession) {
-        setLoading(false);
         return {
           success: true,
           user: currentUser,
@@ -196,22 +224,30 @@ export const AuthProvider = ({ children }) => {
         };
       }
 
-      setLoading(false);
       return { success: true, user: currentUser, session: currentSession, requiresConfirmation: false };
     } catch (err) {
-      console.error('Sign up error:', err);
+      console.error('Sign up unexpected error:', err);
       setError(err.message || 'Failed to sign up');
-      setLoading(false);
-      return { success: false, error: err.message };
+      return { success: false, error: 'Something went wrong while creating your account. Please try again.' };
     }
   };
 
   // Sign In Student
   const signIn = async ({ email, password }) => {
     setError(null);
-    setLoading(true);
 
     const normalizedEmail = (email || '').trim().toLowerCase();
+
+    // 1. Client Validation: Empty Email or Password
+    if (!normalizedEmail || !password) {
+      return { success: false, error: 'Please enter your student ID/email and password.' };
+    }
+
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      return { success: false, error: 'Please enter a valid student email address.' };
+    }
 
     try {
       if (!isSupabaseConfigured) {
@@ -223,7 +259,20 @@ export const AuthProvider = ({ children }) => {
         password,
       });
 
-      if (signInErr) throw signInErr;
+      if (signInErr) {
+        console.error('Raw Supabase SignIn Error:', signInErr);
+        const msg = (signInErr.message || '').toLowerCase();
+
+        if (msg.includes('invalid') || msg.includes('credentials') || msg.includes('grant_type') || signInErr.status === 400) {
+          return { success: false, error: 'Invalid student ID or password.' };
+        }
+
+        if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch')) {
+          return { success: false, error: 'Unable to connect. Please check your internet connection.' };
+        }
+
+        return { success: false, error: 'Invalid student ID or password.' };
+      }
 
       if (data?.user) {
         setSession(data.session);
@@ -233,13 +282,103 @@ export const AuthProvider = ({ children }) => {
         setProfile(studentProfile);
       }
 
-      setLoading(false);
       return { success: true, user: data.user };
     } catch (err) {
-      console.error('Sign in error:', err);
+      console.error('Sign in unexpected error:', err);
       setError(err.message || 'Failed to sign in');
-      setLoading(false);
-      return { success: false, error: err.message };
+      return { success: false, error: 'Something went wrong while signing in. Please try again.' };
+    }
+  };
+
+  // Request Password Reset Email (Privacy-safe)
+  const requestPasswordReset = async (email) => {
+    setError(null);
+
+    const normalizedEmail = (email || '').trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      return { success: false, error: 'Please enter your registered student email.' };
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error('Supabase is not configured.');
+      }
+
+      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}` : undefined;
+
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: redirectUrl,
+      });
+
+      if (resetErr) {
+        console.error('Raw Supabase Reset Password Error:', resetErr);
+        const msg = (resetErr.message || '').toLowerCase();
+        if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch')) {
+          return { success: false, error: 'Unable to connect. Please check your internet connection.' };
+        }
+      }
+
+      // Privacy-safe message: Always return success message to prevent email enumeration
+      return {
+        success: true,
+        message: 'If an account exists with this email, a password reset link has been sent.',
+      };
+    } catch (err) {
+      console.error('Unexpected password reset error:', err);
+      return {
+        success: true,
+        message: 'If an account exists with this email, a password reset link has been sent.',
+      };
+    }
+  };
+
+  // Update Password (Password Reset Flow completion)
+  const updatePassword = async (newPassword) => {
+    setError(null);
+
+    if (!newPassword || newPassword.length < 8) {
+      return { success: false, error: 'Password must be at least 8 characters.' };
+    }
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error('Supabase is not configured.');
+      }
+
+      const { data, error: updateErr } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateErr) {
+        console.error('Raw Supabase Password Update Error:', updateErr);
+        const msg = (updateErr.message || '').toLowerCase();
+
+        if (msg.includes('session') || msg.includes('jwt') || msg.includes('expired') || msg.includes('invalid')) {
+          return { success: false, error: 'The password reset link is invalid or has expired. Please request a new one.' };
+        }
+
+        if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch')) {
+          return { success: false, error: 'Unable to connect. Please check your internet connection.' };
+        }
+
+        return { success: false, error: updateErr.message || 'Could not update password. Please try again.' };
+      }
+
+      setIsPasswordRecovery(false);
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+
+      return { success: true, message: 'Password updated successfully! You can now log in with your new password.' };
+    } catch (err) {
+      console.error('Unexpected password update error:', err);
+      return { success: false, error: 'Something went wrong while updating your password. Please try again.' };
     }
   };
 
@@ -253,10 +392,18 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setProfile(null);
       setSession(null);
+      setIsPasswordRecovery(false);
     } catch (err) {
       console.error('Sign out error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const clearRecoveryMode = () => {
+    setIsPasswordRecovery(false);
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname);
     }
   };
 
@@ -266,9 +413,13 @@ export const AuthProvider = ({ children }) => {
     session,
     loading,
     error,
+    isPasswordRecovery,
     signUp,
     signIn,
     signOut,
+    requestPasswordReset,
+    updatePassword,
+    clearRecoveryMode,
     isConfigured: isSupabaseConfigured,
   };
 
@@ -282,3 +433,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

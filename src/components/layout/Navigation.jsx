@@ -1,11 +1,13 @@
 import React from 'react';
-import { Calendar, BookOpen, PieChart, UserCheck, FlaskConical } from 'lucide-react';
+import { Home, Calendar, BookOpen, PieChart, History, UserCheck } from 'lucide-react';
 
 export const Navigation = ({ activeTab, setActiveTab }) => {
   const tabs = [
-    { id: 'today', label: "Schedule", icon: Calendar },
+    { id: 'home', label: 'Home', icon: Home },
+    { id: 'today', label: 'Schedule', icon: Calendar },
     { id: 'subjects', label: 'Subjects', icon: BookOpen },
     { id: 'analytics', label: 'Analytics', icon: PieChart },
+    { id: 'history', label: 'History', icon: History },
     { id: 'profile', label: 'Profile', icon: UserCheck },
   ];
 

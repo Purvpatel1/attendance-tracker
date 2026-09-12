@@ -6,17 +6,21 @@ import {
   calculateAttendanceMetrics,
   getSubjectUuid,
 } from '../../services/attendanceService';
+import { supabase } from '../../lib/supabaseClient';
 import { Card } from '../common/Card';
 import { Badge } from '../common/Badge';
+import { Spinner } from '../common/Spinner';
 import {
   BarChart3,
   CheckCircle,
   XCircle,
   AlertTriangle,
   BookOpen,
-  Calendar,
-  Layers,
   Percent,
+  AlertCircle,
+  User,
+  CheckCircle2,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 export const AttendanceAnalyticsView = () => {
@@ -29,54 +33,137 @@ export const AttendanceAnalyticsView = () => {
   const [logs, setLogs] = useState([]);
   const [subjectsWithIds, setSubjectsWithIds] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const initData = async () => {
-      if (!user?.id) return;
-      setLoading(true);
+    let isMounted = true;
 
-      // Resolve deterministic UUIDs for preset subjects
-      const resolvedSubjects = await Promise.all(
-        timetableData.subjects.map(async (sub) => {
-          const id = await getSubjectUuid(branch, sub.code);
-          return {
-            ...sub,
-            id,
-            target_percentage: 75,
-          };
-        })
-      );
-      setSubjectsWithIds(resolvedSubjects);
+    const initData = async (showSpinner = true) => {
+      if (!user?.id) {
+        if (isMounted) setLoading(false);
+        return;
+      }
 
-      const fetchedLogs = await fetchStudentLogs(user.id);
-      setLogs(fetchedLogs);
-      setLoading(false);
+      if (isMounted && showSpinner) {
+        setLoading(true);
+        setError(null);
+      }
+
+      try {
+        // Fetch subjects from Supabase DB 'subjects' table if available
+        let dbSubjectsMap = new Map();
+        try {
+          const { data: dbSubjects } = await supabase
+            .from('subjects')
+            .select('*')
+            .eq('branch', branch);
+          
+          if (dbSubjects && dbSubjects.length > 0) {
+            dbSubjects.forEach((sub) => {
+              if (sub.code) dbSubjectsMap.set(sub.code, sub);
+            });
+          }
+        } catch (dbErr) {
+          console.warn('Notice querying Supabase subjects table:', dbErr.message);
+        }
+
+        // Resolve deterministic UUIDs & metadata for assigned subjects
+        const resolvedSubjects = await Promise.all(
+          (timetableData.subjects || []).map(async (sub) => {
+            const id = await getSubjectUuid(branch, sub.code);
+            const dbSub = dbSubjectsMap.get(sub.code);
+            const target = dbSub?.target_percentage !== undefined && dbSub?.target_percentage !== null
+              ? Number(dbSub.target_percentage)
+              : 75;
+
+            return {
+              ...sub,
+              id,
+              teacher: dbSub?.teacher || sub.teacher || 'Faculty',
+              type: dbSub?.type || sub.type || 'Lecture',
+              target_percentage: target,
+              isTargetFallback: !dbSub?.target_percentage,
+            };
+          })
+        );
+
+        if (isMounted) setSubjectsWithIds(resolvedSubjects);
+
+        // Fetch attendance logs for student
+        const fetchedLogs = await fetchStudentLogs(user.id);
+        if (isMounted) setLogs(fetchedLogs);
+      } catch (err) {
+        console.error('Error initializing subject analytics view:', err);
+        if (isMounted) setError('Failed to load attendance logs. Please check your network connection.');
+      } finally {
+        if (isMounted && showSpinner) setLoading(false);
+      }
     };
 
-    initData();
-  }, [user?.id, branch, batch]);
+    initData(true);
+
+    const handleGlobalUpdate = () => {
+      initData(false);
+    };
+
+    window.addEventListener('attendance-updated', handleGlobalUpdate);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('attendance-updated', handleGlobalUpdate);
+    };
+  }, [user?.id, branch, batch, timetableData.subjects]);
 
   const { overall, subjectMetrics } = calculateAttendanceMetrics(
     subjectsWithIds,
     logs
   );
 
-  const getStatusBadge = (percentage, target = 75, conducted = 0) => {
-    if (conducted === 0) {
+  // Status Badge Logic:
+  // - Safe: percentage >= target (or 0 conducted classes)
+  // - Warning: target - 10 <= percentage < target
+  // - Critical: percentage < target - 10
+  const getStatusBadge = (percentage, target = 75, conductedCount = 0) => {
+    if (conductedCount === 0) {
       return <Badge variant="info">No Classes Yet</Badge>;
     }
     if (percentage >= target) {
       return <Badge variant="success">SAFE ({percentage}%)</Badge>;
     }
-    return <Badge variant="danger">AT RISK ({percentage}%)</Badge>;
+    if (percentage >= target - 10) {
+      return <Badge variant="warning">WARNING ({percentage}%)</Badge>;
+    }
+    return <Badge variant="danger">CRITICAL ({percentage}%)</Badge>;
   };
 
+  // State 1: Logged Out / Missing Session State
+  if (!user) {
+    return (
+      <Card title="Subject Analytics">
+        <div className="alert alert-info">
+          <AlertCircle size={18} />
+          <span>Please log in to view your subject attendance analytics.</span>
+        </div>
+      </Card>
+    );
+  }
+
+  // State 2: Loading Analytics State
   if (loading) {
     return (
-      <Card>
-        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          <BarChart3 size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
-          <p>Loading attendance metrics & history...</p>
+      <div style={{ minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Spinner label="Loading Subject Analytics & History..." />
+      </div>
+    );
+  }
+
+  // State 3: Database / Network Error State
+  if (error) {
+    return (
+      <Card title="Subject Analytics">
+        <div className="alert alert-danger" role="alert">
+          <AlertCircle size={18} />
+          <span>{error}</span>
         </div>
       </Card>
     );
@@ -84,13 +171,21 @@ export const AttendanceAnalyticsView = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header Overall Metrics Summary Card */}
+      {/* Page Title & Subtitle */}
+      <div>
+        <h2 style={{ fontSize: '1.4rem', fontWeight: 700 }}>Subject Analytics</h2>
+        <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+          Overview of present, absent, and target standing across all courses
+        </p>
+      </div>
+
+      {/* 1. OVERALL SUMMARY SECTION */}
       <Card
-        title="Attendance Analytics & Performance"
-        subtitle={`${profile?.full_name || 'Student'} • ${branch} (${batch})`}
+        title="Overall Attendance Performance"
+        subtitle={`${profile?.full_name || user?.email?.split('@')[0] || 'Student'} • ${branch} (${batch})`}
         headerAction={
           overall.totalConducted === 0 ? (
-            <Badge variant="info">New Semester</Badge>
+            <Badge variant="info">New Term</Badge>
           ) : overall.overallPercentage >= 75 ? (
             <Badge variant="success">Overall Safe</Badge>
           ) : (
@@ -101,44 +196,44 @@ export const AttendanceAnalyticsView = () => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
             gap: '12px',
             marginTop: '16px',
           }}
         >
-          {/* Overall Percentage Card */}
+          {/* Overall Attendance Percentage */}
           <div
             style={{
               padding: '16px',
-              background: 'rgba(15, 23, 42, 0.6)',
+              background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border-subtle)',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-              <Percent size={18} color="var(--primary-500)" />
+              <Percent size={18} color="var(--primary)" />
               <span>Overall Attendance</span>
             </div>
             <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '6px' }}>
-              {overall.overallPercentage}%
+              {overall.totalConducted > 0 ? `${overall.overallPercentage}%` : 'N/A'}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Target: 75.0%
+              Formula: Present / (Present + Absent)
             </div>
           </div>
 
-          {/* Conducted Classes */}
+          {/* Total Conducted / Marked Classes */}
           <div
             style={{
               padding: '16px',
-              background: 'rgba(15, 23, 42, 0.6)',
+              background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border-subtle)',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
               <BookOpen size={18} color="var(--color-info)" />
-              <span>Conducted Sessions</span>
+              <span>Total Marked Classes</span>
             </div>
             <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '6px' }}>
               {overall.totalConducted}
@@ -148,50 +243,50 @@ export const AttendanceAnalyticsView = () => {
             </div>
           </div>
 
-          {/* Attended (PRESENT) */}
+          {/* Total Present */}
           <div
             style={{
               padding: '16px',
-              background: 'rgba(15, 23, 42, 0.6)',
+              background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border-subtle)',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
               <CheckCircle size={18} color="var(--color-present)" />
-              <span>Attended (Present)</span>
+              <span>Total Present</span>
             </div>
             <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--color-present)', marginTop: '6px' }}>
               {overall.totalPresent}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              {overall.totalConducted > 0 ? Math.round((overall.totalPresent / overall.totalConducted) * 100) : 0}% of conducted
+              Attended Sessions
             </div>
           </div>
 
-          {/* Missed (ABSENT) */}
+          {/* Total Absent */}
           <div
             style={{
               padding: '16px',
-              background: 'rgba(15, 23, 42, 0.6)',
+              background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border-subtle)',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
               <XCircle size={18} color="var(--color-absent)" />
-              <span>Missed (Absent)</span>
+              <span>Total Absent</span>
             </div>
             <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--color-absent)', marginTop: '6px' }}>
               {overall.totalAbsent}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              {overall.totalConducted > 0 ? Math.round((overall.totalAbsent / overall.totalConducted) * 100) : 0}% missed
+              Missed Sessions
             </div>
           </div>
         </div>
 
-        {/* Overall Bunk / Recovery Calculator Action Guidance Banner */}
+        {/* Overall Guidance Banner */}
         {overall.totalConducted > 0 && (
           <div
             style={{
@@ -209,12 +304,12 @@ export const AttendanceAnalyticsView = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {overall.status === 'SAFE' ? (
-                <CheckCircle size={18} color="var(--color-present)" />
+                <CheckCircle2 size={18} color="var(--color-present)" />
               ) : (
                 <AlertTriangle size={18} color="var(--color-absent)" />
               )}
               <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                Overall Guidance: {overall.guidanceText}
+                Overall Standing: {overall.guidanceText}
               </span>
             </div>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
@@ -224,134 +319,128 @@ export const AttendanceAnalyticsView = () => {
         )}
       </Card>
 
-      {/* Subject-wise Breakdown Grid */}
-      <Card title="Subject-wise Breakdown" subtitle="Detailed attendance tracking per course subject">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
-          {subjectMetrics.map((sub) => {
-            const isSafe = sub.conductedCount === 0 || sub.percentage >= (sub.target_percentage || 75);
-
-            return (
-              <div
-                key={sub.code}
-                style={{
-                  padding: '16px',
-                  background: 'rgba(15, 23, 42, 0.5)',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border-subtle)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
-                  <div>
-                    <h4 style={{ fontSize: '1rem', color: 'var(--text-main)', margin: 0 }}>
-                      {sub.name}
-                    </h4>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                      Code: {sub.code} • Type: {sub.type}
-                    </span>
-                  </div>
-                  <div>{getStatusBadge(sub.percentage, sub.target_percentage || 75, sub.conductedCount)}</div>
-                </div>
-
-                {/* Progress Bar */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    <span>Progress: {sub.percentage}%</span>
-                    <span>{sub.presentCount} / {sub.conductedCount} Conducted</span>
-                  </div>
-                  <div
-                    style={{
-                      height: '8px',
-                      background: 'rgba(255, 255, 255, 0.1)',
-                      borderRadius: '4px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${Math.min(sub.percentage, 100)}%`,
-                        background: sub.conductedCount === 0 ? 'var(--text-muted)' : isSafe ? 'var(--color-present)' : 'var(--color-absent)',
-                        transition: 'width 0.3s ease',
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Bunk / Recovery Guidance Pill */}
-                {sub.conductedCount > 0 && (
-                  <div
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      color: sub.status === 'SAFE' ? 'var(--color-present)' : 'var(--color-absent)',
-                      padding: '4px 10px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: sub.status === 'SAFE' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                      border: '1px solid ' + (sub.status === 'SAFE' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'),
-                      width: 'fit-content',
-                    }}
-                  >
-                    {sub.guidanceText}
-                  </div>
-                )}
-
-                {/* Detailed Counts Footer */}
-                <div style={{ display: 'flex', gap: '16px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  <span>Present: <strong style={{ color: 'var(--color-present)' }}>{sub.presentCount}</strong></span>
-                  <span>Absent: <strong style={{ color: 'var(--color-absent)' }}>{sub.absentCount}</strong></span>
-                  <span>Cancelled: <strong style={{ color: 'var(--color-cancelled)' }}>{sub.cancelledCount}</strong></span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      {/* Attendance History Table */}
-      <Card title="Marked Logs History" subtitle="Recent attendance entries saved in Supabase">
-        {logs.length === 0 ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            No attendance logs marked yet. Mark classes in today's schedule to start building history.
+      {/* 2. SUBJECT-WISE ATTENDANCE CARDS */}
+      <Card
+        title="Subject Breakdown"
+        subtitle="Detailed course-by-course attendance status and targets"
+      >
+        {subjectMetrics.length === 0 ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <FileSpreadsheet size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
+            <p>No subjects found for branch {branch} ({batch}).</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto', marginTop: '12px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '10px 12px' }}>Date</th>
-                  <th style={{ padding: '10px 12px' }}>Subject ID</th>
-                  <th style={{ padding: '10px 12px' }}>Status</th>
-                  <th style={{ padding: '10px 12px' }}>Marked At</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                    <td style={{ padding: '10px 12px', fontWeight: 600 }}>{log.date}</td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: '0.78rem' }}>{log.subject_id.slice(0, 13)}...</td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <Badge
-                        variant={
-                          log.status === 'PRESENT'
-                            ? 'success'
-                            : log.status === 'ABSENT'
-                            ? 'danger'
-                            : 'info'
-                        }
-                      >
-                        {log.status}
-                      </Badge>
-                    </td>
-                    <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                      {log.marked_at ? new Date(log.marked_at).toLocaleString() : 'N/A'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
+            {subjectMetrics.map((sub) => {
+              const isZeroConducted = sub.conductedCount === 0;
+              const target = sub.targetPercentage || 75;
+
+              return (
+                <div
+                  key={sub.code}
+                  style={{
+                    padding: '16px',
+                    background: 'var(--bg-elevated)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                  }}
+                >
+                  {/* Card Top Row: Name, Code, Type, Teacher & Status Badge */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <h4 style={{ fontSize: '1.05rem', color: 'var(--text-main)', margin: 0, fontWeight: 700 }}>
+                        {sub.name}
+                      </h4>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>Code: {sub.code}</span>
+                        <span>•</span>
+                        <span>Type: {sub.type || 'Lecture'}</span>
+                        {sub.teacher && (
+                          <>
+                            <span>•</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <User size={12} color="var(--primary)" /> {sub.teacher}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      {getStatusBadge(sub.percentage, target, sub.conductedCount)}
+                    </div>
+                  </div>
+
+                  {/* Attendance Percentage & Progress Bar */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                      <span>
+                        Attendance: <strong style={{ color: isZeroConducted ? 'var(--text-muted)' : sub.percentage >= target ? 'var(--color-present)' : 'var(--color-absent)' }}>
+                          {isZeroConducted ? 'No attendance data' : `${sub.percentage}%`}
+                        </strong>
+                      </span>
+                      <span>
+                        Target: <strong>{target}%</strong>
+                        {sub.isTargetFallback && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}> (default)</span>}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        height: '8px',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        borderRadius: '4px',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${isZeroConducted ? 0 : Math.min(sub.percentage, 100)}%`,
+                          background: isZeroConducted
+                            ? 'var(--text-muted)'
+                            : sub.percentage >= target
+                            ? 'var(--color-present)'
+                            : sub.percentage >= target - 10
+                            ? 'var(--color-cancelled)'
+                            : 'var(--color-absent)',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Guidance Pill */}
+                  {!isZeroConducted && (
+                    <div
+                      style={{
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: sub.status === 'SAFE' ? 'var(--color-present)' : 'var(--color-absent)',
+                        padding: '4px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: sub.status === 'SAFE' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid ' + (sub.status === 'SAFE' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'),
+                        width: 'fit-content',
+                      }}
+                    >
+                      {sub.guidanceText}
+                    </div>
+                  )}
+
+                  {/* Detailed Class Counts Footer */}
+                  <div style={{ display: 'flex', gap: '16px', fontSize: '0.8rem', color: 'var(--text-muted)', flexWrap: 'wrap', paddingTop: '4px', borderTop: '1px solid var(--border-subtle)' }}>
+                    <span>Present: <strong style={{ color: 'var(--color-present)' }}>{sub.presentCount}</strong></span>
+                    <span>Absent: <strong style={{ color: 'var(--color-absent)' }}>{sub.absentCount}</strong></span>
+                    <span>Marked Classes: <strong style={{ color: 'var(--text-main)' }}>{sub.conductedCount}</strong></span>
+                    <span>Cancelled: <strong style={{ color: 'var(--color-cancelled)' }}>{sub.cancelledCount}</strong> <span style={{ fontSize: '0.72rem' }}>(excluded)</span></span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>

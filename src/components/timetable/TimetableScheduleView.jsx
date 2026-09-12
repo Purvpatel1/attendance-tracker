@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { getTimetableForStudent, DAYS_OF_WEEK } from '../../services/timetableService';
+import { getTimetableForStudent } from '../../services/timetableService';
 import {
   fetchStudentLogs,
   saveAttendanceLog,
@@ -10,6 +10,7 @@ import {
   getLogForExtraLectureHour,
   getKolkataTodayDateString,
   getDayOfWeekFromDateString,
+  calculateAttendanceMetrics,
 } from '../../services/attendanceService';
 import {
   fetchExtraLecturesForStudent,
@@ -20,29 +21,9 @@ import {
   fetchEligibleSubjects,
 } from '../../services/extraLectureService';
 import { AddExtraLectureModal } from './AddExtraLectureModal';
-import { Card } from '../common/Card';
-import { Badge } from '../common/Badge';
-import {
-  Clock,
-  MapPin,
-  User,
-  Calendar,
-  BookOpen,
-  Layers,
-  Check,
-  X,
-  Ban,
-  Plus,
-  Edit2,
-  Trash2,
-  AlertCircle,
-} from 'lucide-react';
-
-const ATTENDANCE_STATUS = {
-  PRESENT: 'PRESENT',
-  ABSENT: 'ABSENT',
-  CANCELLED: 'CANCELLED',
-};
+import { ScheduleHeader } from './ScheduleHeader';
+import { ScheduleClassItem } from './ScheduleClassItem';
+import { Calendar } from 'lucide-react';
 
 export const TimetableScheduleView = () => {
   const { user, profile } = useAuth();
@@ -63,6 +44,7 @@ export const TimetableScheduleView = () => {
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [markingSlotKey, setMarkingSlotKey] = useState(null);
   const [slotUuids, setSlotUuids] = useState({});
+  const [subjectsWithIds, setSubjectsWithIds] = useState([]);
 
   // Extra Lectures state
   const [extraLectures, setExtraLectures] = useState([]);
@@ -74,6 +56,56 @@ export const TimetableScheduleView = () => {
 
   // Filter extra lectures for the selected date
   const dailyExtraLectures = extraLectures.filter((el) => el.date === selectedDate);
+
+  // Helper to check if a class time slot is currently ongoing
+  const isTimeSlotOngoing = (dateStr, startTime, endTime) => {
+    if (dateStr !== todayStr) return false;
+    try {
+      const now = new Date();
+      const options = { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' };
+      const formatter = new Intl.DateTimeFormat('en-GB', options);
+      const parts = formatter.formatToParts(now);
+      const hr = parts.find((p) => p.type === 'hour')?.value || '0';
+      const min = parts.find((p) => p.type === 'minute')?.value || '0';
+      const currentMinutes = parseInt(hr, 10) * 60 + parseInt(min, 10);
+
+      const parseMinutes = (tStr) => {
+        if (!tStr) return 0;
+        const [h, m] = tStr.slice(0, 5).split(':').map(Number);
+        return h * 60 + m;
+      };
+
+      const startMins = parseMinutes(startTime);
+      const endMins = parseMinutes(endTime);
+
+      return currentMinutes >= startMins && currentMinutes < endMins;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Resolve subject UUIDs for live metrics calculation
+  useEffect(() => {
+    let isMounted = true;
+    const resolveSubjectUuids = async () => {
+      const resolved = await Promise.all(
+        (timetableData.subjects || []).map(async (sub) => {
+          const id = await getSubjectUuid(branch, sub.code);
+          return { ...sub, id, target_percentage: 75 };
+        })
+      );
+      if (isMounted) {
+        setSubjectsWithIds(resolved);
+      }
+    };
+    resolveSubjectUuids();
+    return () => {
+      isMounted = false;
+    };
+  }, [branch, batch]);
+
+  // Derive live attendance metrics per subject from existing logs & subjects
+  const { subjectMetrics } = calculateAttendanceMetrics(subjectsWithIds, logs);
 
   // Resolve eligible curriculum subjects for the student (branch + batch scope)
   useEffect(() => {
@@ -117,20 +149,29 @@ export const TimetableScheduleView = () => {
     };
   }, [selectedDay, branch, batch]);
 
-  const loadData = async () => {
+  const loadData = async (showLoading = true) => {
     if (!user?.id) return;
-    setLoadingLogs(true);
+    if (showLoading) setLoadingLogs(true);
     const [fetchedLogs, fetchedExtra] = await Promise.all([
       fetchStudentLogs(user.id),
       fetchExtraLecturesForStudent(user.id),
     ]);
     setLogs(fetchedLogs);
     setExtraLectures(fetchedExtra);
-    setLoadingLogs(false);
+    if (showLoading) setLoadingLogs(false);
   };
 
   useEffect(() => {
-    loadData();
+    loadData(true);
+
+    const handleGlobalUpdate = () => {
+      loadData(false);
+    };
+
+    window.addEventListener('attendance-updated', handleGlobalUpdate);
+    return () => {
+      window.removeEventListener('attendance-updated', handleGlobalUpdate);
+    };
   }, [user?.id]);
 
   // Helper to find marked log entry for a recurring slot, date, and hourIndex
@@ -146,9 +187,9 @@ export const TimetableScheduleView = () => {
   };
 
   // Mark status for recurring slot
-  const handleMarkStatus = async (slot, index, hourIndex, targetStatus) => {
+  const handleMarkStatus = async (slot, hourIndex, targetStatus) => {
     if (!user?.id) return;
-    const slotKey = `${slot.id}_${index}_h${hourIndex}`;
+    const slotKey = `${slot.id}_h${hourIndex}`;
     setMarkingSlotKey(slotKey);
 
     try {
@@ -348,514 +389,84 @@ export const TimetableScheduleView = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header Info Card */}
-      <Card
-        title="Weekly Timetable & Schedule"
-        subtitle={`${branch} • Batch ${batch}`}
-        headerAction={
-          <Badge variant="success">
-            {timetableData.totalSlotsCount} Weekly Slots
-          </Badge>
-        }
-      >
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-            gap: '12px',
-            marginTop: '12px',
-          }}
-        >
-          <div
-            style={{
-              padding: '12px',
-              background: 'rgba(15, 23, 42, 0.6)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-              <BookOpen size={16} color="var(--primary-500)" />
-              <span>Total Subjects</span>
-            </div>
-            <strong style={{ fontSize: '1.2rem', marginTop: '4px', display: 'block' }}>
-              {timetableData.subjects.length}
-            </strong>
-          </div>
+    <div className="schedule-view-container">
+      {/* Streamlined Schedule Header */}
+      <ScheduleHeader
+        selectedDate={selectedDate}
+        selectedDay={selectedDay}
+        onSelectDate={setSelectedDate}
+        onSelectDay={setSelectedDay}
+        onOpenExtraModal={() => {
+          setEditingLecture(null);
+          setIsModalOpen(true);
+        }}
+        timetableData={timetableData}
+      />
 
-          <div
-            style={{
-              padding: '12px',
-              background: 'rgba(15, 23, 42, 0.6)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-              <Layers size={16} color="var(--color-info)" />
-              <span>Branch Common</span>
-            </div>
-            <strong style={{ fontSize: '1.2rem', marginTop: '4px', display: 'block' }}>
-              {timetableData.commonLecturesCount} Sessions
-            </strong>
-          </div>
+      {/* Timeline Schedule List */}
+      <div className="schedule-timeline-list">
+        {/* Render Extra Lectures first if any exist for target date */}
+        {dailyExtraLectures.map((lecture) => {
+          const subjectMeta =
+            lecture.subjects || eligibleSubjects.find((s) => s.id === lecture.subject_id) || {};
+          const hoursList = expandExtraLectureToHourlyUnits(lecture);
+          const isOngoing = isTimeSlotOngoing(selectedDate, lecture.start_time, lecture.end_time);
+          const subjectMetric = subjectMetrics.find((m) => m.id === lecture.subject_id);
 
-          <div
-            style={{
-              padding: '12px',
-              background: 'rgba(15, 23, 42, 0.6)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-              <Calendar size={16} color="var(--color-cancelled)" />
-              <span>Batch {batch} Labs</span>
-            </div>
-            <strong style={{ fontSize: '1.2rem', marginTop: '4px', display: 'block' }}>
-              {timetableData.batchLabsCount} Labs
-            </strong>
-          </div>
-        </div>
-      </Card>
-
-      {/* Date & Day Picker Controls Bar + Add Extra Class Action */}
-      <Card>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Calendar size={18} color="var(--primary-500)" />
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Target Date:</span>
-              <input
-                type="date"
-                className="input-field"
-                style={{ padding: '6px 10px', width: 'auto', fontSize: '0.85rem' }}
-                value={selectedDate}
-                onChange={(e) => {
-                  const dateVal = e.target.value;
-                  setSelectedDate(dateVal);
-                  if (dateVal) {
-                    setSelectedDay(getDayOfWeekFromDateString(dateVal));
-                  }
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ padding: '6px 12px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-              onClick={() => {
-                setEditingLecture(null);
+          return (
+            <ScheduleClassItem
+              key={`extra_${lecture.id}`}
+              classData={lecture}
+              isExtra={true}
+              isOngoing={isOngoing}
+              subjectMeta={subjectMeta}
+              subjectMetric={subjectMetric}
+              hoursList={hoursList}
+              markingSlotKey={markingSlotKey}
+              getLogForExtraHourLocal={getLogForExtraHourLocal}
+              onMarkExtraStatus={handleMarkExtraStatus}
+              onEditExtra={(lec) => {
+                setEditingLecture(lec);
                 setIsModalOpen(true);
               }}
-            >
-              <Plus size={16} />
-              <span>Add Extra Class</span>
-            </button>
-
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Showing classes for <strong>{selectedDate}</strong>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* Day Navigation Tabs */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '8px',
-          overflowX: 'auto',
-          paddingBottom: '4px',
-        }}
-      >
-        {DAYS_OF_WEEK.map((day) => {
-          const isSelected = selectedDay === day.id;
-          const slotCount = (timetableData.scheduleByDay[day.id] || []).length;
-          return (
-            <button
-              key={day.id}
-              onClick={() => setSelectedDay(day.id)}
-              style={{
-                flex: 1,
-                minWidth: '70px',
-                padding: '10px 8px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid ' + (isSelected ? 'var(--primary-500)' : 'var(--border-subtle)'),
-                background: isSelected ? 'var(--primary-gradient)' : 'rgba(17, 24, 39, 0.6)',
-                color: isSelected ? '#fff' : 'var(--text-muted)',
-                cursor: 'pointer',
-                textAlign: 'center',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{day.short}</div>
-              <div style={{ fontSize: '0.7rem', opacity: 0.8, marginTop: '2px' }}>
-                {slotCount} {slotCount === 1 ? 'class' : 'classes'}
-              </div>
-            </button>
+              onDeleteExtra={handleDeleteExtraLecture}
+            />
           );
         })}
-      </div>
 
-      {/* Extra Lectures Section (if any for selected date) */}
-      {dailyExtraLectures.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#facc15', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <AlertCircle size={16} />
-            <span>Extra Classes on {selectedDate} ({dailyExtraLectures.length})</span>
+        {/* Render Regular Scheduled Slots for the selected day */}
+        {daySchedule.map((slot, index) => {
+          const hoursList =
+            slot.hours || [{ hourIndex: 1, label: `${slot.startTime} - ${slot.endTime}` }];
+          const isOngoing = isTimeSlotOngoing(selectedDate, slot.startTime, slot.endTime);
+          const subjectMetric = subjectMetrics.find((m) => m.code === slot.code);
+
+          return (
+            <ScheduleClassItem
+              key={`slot_${slot.id}_${index}`}
+              classData={slot}
+              isExtra={false}
+              isOngoing={isOngoing}
+              subjectMetric={subjectMetric}
+              hoursList={hoursList}
+              slotUuids={slotUuids}
+              markingSlotKey={markingSlotKey}
+              getLogForSlotHourLocal={getLogForSlotHourLocal}
+              onMarkStatus={handleMarkStatus}
+            />
+          );
+        })}
+
+        {/* Empty State */}
+        {daySchedule.length === 0 && dailyExtraLectures.length === 0 && (
+          <div className="editorial-empty-state">
+            <Calendar size={28} className="empty-icon" />
+            <p className="empty-title">
+              {selectedDay === 0
+                ? 'No classes scheduled on Sunday.'
+                : 'No classes scheduled for this day.'}
+            </p>
           </div>
-
-          {dailyExtraLectures.map((lecture) => {
-            const subject = lecture.subjects || eligibleSubjects.find((s) => s.id === lecture.subject_id) || {};
-            const hoursList = expandExtraLectureToHourlyUnits(lecture);
-
-            return (
-              <Card key={lecture.id} interactive>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* Top Bar: Time, Extra Class Badge, Actions */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontWeight: 600 }}>
-                      <Clock size={16} color="#facc15" />
-                      <span>{lecture.start_time?.slice(0, 5)} - {lecture.end_time?.slice(0, 5)}</span>
-                      <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>
-                        ({hoursList.length} {hoursList.length === 1 ? 'hour' : 'hours'})
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Badge variant="warning">Extra Class</Badge>
-                      <button
-                        type="button"
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
-                        title="Edit Extra Class"
-                        onClick={() => {
-                          setEditingLecture(lecture);
-                          setIsModalOpen(true);
-                        }}
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        style={{ background: 'transparent', border: 'none', color: 'var(--color-absent)', cursor: 'pointer', padding: '4px' }}
-                        title="Delete Extra Class"
-                        onClick={() => handleDeleteExtraLecture(lecture)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Middle: Subject Title & Code */}
-                  <div>
-                    <h4 style={{ fontSize: '1.05rem', color: 'var(--text-main)' }}>
-                      {subject.name || 'Extra Lecture'}
-                    </h4>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                      Code: {subject.code || 'N/A'} • Type: {subject.type || 'Lecture'}
-                    </span>
-                  </div>
-
-                  {/* HOURLY ATTENDANCE MARKING CONTROLS FOR EXTRA CLASS */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                      paddingTop: '10px',
-                      borderTop: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    {hoursList.map((hObj) => {
-                      const existingLog = getLogForExtraHourLocal(lecture.id, hObj.hourIndex);
-                      const slotKey = `extra_${lecture.id}_h${hObj.hourIndex}`;
-                      const isMarking = markingSlotKey === slotKey;
-
-                      return (
-                        <div
-                          key={hObj.hourIndex}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            flexWrap: 'wrap',
-                            gap: '8px',
-                            padding: hoursList.length > 1 ? '6px 8px' : '0px',
-                            background: hoursList.length > 1 ? 'rgba(15, 23, 42, 0.4)' : 'transparent',
-                            borderRadius: 'var(--radius-sm)',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
-                            <span style={{ color: 'var(--text-muted)' }}>
-                              {hoursList.length > 1 ? hObj.label : 'Status:'}
-                            </span>
-                            {existingLog ? (
-                              <Badge
-                                variant={
-                                  existingLog.status === ATTENDANCE_STATUS.PRESENT
-                                    ? 'success'
-                                    : existingLog.status === ATTENDANCE_STATUS.ABSENT
-                                    ? 'danger'
-                                    : 'info'
-                                }
-                              >
-                                {existingLog.status}
-                              </Badge>
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 400 }}>Unmarked</span>
-                            )}
-                          </div>
-
-                          {/* Marking Toggle Buttons */}
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button
-                              type="button"
-                              className={`btn ${existingLog?.status === ATTENDANCE_STATUS.PRESENT ? 'btn-primary' : 'btn-ghost'}`}
-                              style={{
-                                padding: '4px 10px',
-                                fontSize: '0.78rem',
-                                borderColor: existingLog?.status === ATTENDANCE_STATUS.PRESENT ? 'var(--color-present)' : 'var(--border-subtle)',
-                                color: existingLog?.status === ATTENDANCE_STATUS.PRESENT ? '#fff' : 'var(--color-present)',
-                              }}
-                              disabled={isMarking}
-                              onClick={() => handleMarkExtraStatus(lecture, hObj.hourIndex, ATTENDANCE_STATUS.PRESENT)}
-                            >
-                              <Check size={14} />
-                              <span>Present</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              className={`btn ${existingLog?.status === ATTENDANCE_STATUS.ABSENT ? 'btn-danger' : 'btn-ghost'}`}
-                              style={{
-                                padding: '4px 10px',
-                                fontSize: '0.78rem',
-                                borderColor: existingLog?.status === ATTENDANCE_STATUS.ABSENT ? 'var(--color-absent)' : 'var(--border-subtle)',
-                                color: existingLog?.status === ATTENDANCE_STATUS.ABSENT ? '#fff' : 'var(--color-absent)',
-                              }}
-                              disabled={isMarking}
-                              onClick={() => handleMarkExtraStatus(lecture, hObj.hourIndex, ATTENDANCE_STATUS.ABSENT)}
-                            >
-                              <X size={14} />
-                              <span>Absent</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              className={`btn ${existingLog?.status === ATTENDANCE_STATUS.CANCELLED ? 'btn-ghost' : 'btn-ghost'}`}
-                              style={{
-                                padding: '4px 10px',
-                                fontSize: '0.78rem',
-                                borderColor: existingLog?.status === ATTENDANCE_STATUS.CANCELLED ? 'var(--color-cancelled)' : 'var(--border-subtle)',
-                                color: existingLog?.status === ATTENDANCE_STATUS.CANCELLED ? 'var(--color-cancelled)' : 'var(--text-muted)',
-                              }}
-                              disabled={isMarking}
-                              onClick={() => handleMarkExtraStatus(lecture, hObj.hourIndex, ATTENDANCE_STATUS.CANCELLED)}
-                            >
-                              <Ban size={14} />
-                              <span>Cancelled</span>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Daily Schedule Slots List (Recurring Weekly Timetable) */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {daySchedule.length === 0 && dailyExtraLectures.length === 0 ? (
-          <Card>
-            <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              <Calendar size={36} style={{ marginBottom: '8px', opacity: 0.5 }} />
-              <p>No classes scheduled for this day.</p>
-            </div>
-          </Card>
-        ) : (
-          daySchedule.map((slot, index) => {
-            const isLab = slot.type === 'Lab';
-            const isSeminar = slot.type === 'Seminar';
-            const hoursList = slot.hours || [{ hourIndex: 1, label: `${slot.startTime} - ${slot.endTime}` }];
-
-            return (
-              <Card key={`${slot.id}_${index}`} interactive>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* Top Bar: Time, Type Badge, and Scope Badge */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontWeight: 600 }}>
-                      <Clock size={16} color="var(--primary-500)" />
-                      <span>{slot.startTime} - {slot.endTime}</span>
-                      <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>
-                        ({slot.duration || 1} {slot.duration === 1 ? 'hour' : 'hours'})
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <Badge variant={isLab ? 'warning' : isSeminar ? 'info' : 'success'}>
-                        {slot.type}
-                      </Badge>
-                      {slot.isBatchSpecific ? (
-                        <Badge variant="danger">
-                          Batch {slot.batchScope}
-                        </Badge>
-                      ) : (
-                        <Badge variant="info">
-                          Branch Common
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Middle: Subject Title & Code */}
-                  <div>
-                    <h4 style={{ fontSize: '1.05rem', color: 'var(--text-main)' }}>
-                      {slot.subjectName}
-                    </h4>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                      Code: {slot.code}
-                    </span>
-                  </div>
-
-                  {/* Location & Optional Faculty */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '16px',
-                      fontSize: '0.82rem',
-                      color: 'var(--text-muted)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <MapPin size={14} color="var(--accent-gradient)" />
-                      <span>Room/Lab: <strong>{slot.room || 'TBA'}</strong></span>
-                    </div>
-                    {slot.teacher && slot.teacher.trim() !== '' && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <User size={14} color="var(--primary-500)" />
-                        <span>Faculty: <strong>{slot.teacher}</strong></span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* HOURLY ATTENDANCE MARKING CONTROLS */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                      paddingTop: '10px',
-                      borderTop: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    {hoursList.map((hObj) => {
-                      const existingLog = getLogForSlotHourLocal(slot, hObj.hourIndex);
-                      const slotKey = `${slot.id}_${index}_h${hObj.hourIndex}`;
-                      const isMarking = markingSlotKey === slotKey;
-
-                      return (
-                        <div
-                          key={hObj.hourIndex}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            flexWrap: 'wrap',
-                            gap: '8px',
-                            padding: hoursList.length > 1 ? '6px 8px' : '0px',
-                            background: hoursList.length > 1 ? 'rgba(15, 23, 42, 0.4)' : 'transparent',
-                            borderRadius: 'var(--radius-sm)',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
-                            <span style={{ color: 'var(--text-muted)' }}>
-                              {hoursList.length > 1 ? hObj.label : 'Status:'}
-                            </span>
-                            {existingLog ? (
-                              <Badge
-                                variant={
-                                  existingLog.status === ATTENDANCE_STATUS.PRESENT
-                                    ? 'success'
-                                    : existingLog.status === ATTENDANCE_STATUS.ABSENT
-                                    ? 'danger'
-                                    : 'info'
-                                }
-                              >
-                                {existingLog.status}
-                              </Badge>
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 400 }}>Unmarked</span>
-                            )}
-                          </div>
-
-                          {/* Marking Toggle Buttons */}
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button
-                              type="button"
-                              className={`btn ${existingLog?.status === ATTENDANCE_STATUS.PRESENT ? 'btn-primary' : 'btn-ghost'}`}
-                              style={{
-                                padding: '4px 10px',
-                                fontSize: '0.78rem',
-                                borderColor: existingLog?.status === ATTENDANCE_STATUS.PRESENT ? 'var(--color-present)' : 'var(--border-subtle)',
-                                color: existingLog?.status === ATTENDANCE_STATUS.PRESENT ? '#fff' : 'var(--color-present)',
-                              }}
-                              disabled={isMarking}
-                              onClick={() => handleMarkStatus(slot, index, hObj.hourIndex, ATTENDANCE_STATUS.PRESENT)}
-                            >
-                              <Check size={14} />
-                              <span>Present</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              className={`btn ${existingLog?.status === ATTENDANCE_STATUS.ABSENT ? 'btn-danger' : 'btn-ghost'}`}
-                              style={{
-                                padding: '4px 10px',
-                                fontSize: '0.78rem',
-                                borderColor: existingLog?.status === ATTENDANCE_STATUS.ABSENT ? 'var(--color-absent)' : 'var(--border-subtle)',
-                                color: existingLog?.status === ATTENDANCE_STATUS.ABSENT ? '#fff' : 'var(--color-absent)',
-                              }}
-                              disabled={isMarking}
-                              onClick={() => handleMarkStatus(slot, index, hObj.hourIndex, ATTENDANCE_STATUS.ABSENT)}
-                            >
-                              <X size={14} />
-                              <span>Absent</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              className={`btn ${existingLog?.status === ATTENDANCE_STATUS.CANCELLED ? 'btn-ghost' : 'btn-ghost'}`}
-                              style={{
-                                padding: '4px 10px',
-                                fontSize: '0.78rem',
-                                borderColor: existingLog?.status === ATTENDANCE_STATUS.CANCELLED ? 'var(--color-cancelled)' : 'var(--border-subtle)',
-                                color: existingLog?.status === ATTENDANCE_STATUS.CANCELLED ? 'var(--color-cancelled)' : 'var(--text-muted)',
-                              }}
-                              disabled={isMarking}
-                              onClick={() => handleMarkStatus(slot, index, hObj.hourIndex, ATTENDANCE_STATUS.CANCELLED)}
-                            >
-                              <Ban size={14} />
-                              <span>Cancelled</span>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </Card>
-            );
-          })
         )}
       </div>
 
@@ -874,3 +485,4 @@ export const TimetableScheduleView = () => {
     </div>
   );
 };
+

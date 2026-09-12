@@ -9,6 +9,9 @@ node_modules/
 # Production build outputs
 dist/
 
+# Development & test scratch scripts
+scratch/
+
 # System / IDE files
 .DS_Store
 *.log

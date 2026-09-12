@@ -34,9 +34,9 @@ export const SubjectsDirectoryView = () => {
               style={{
                 padding: '6px 14px',
                 borderRadius: 'var(--radius-full)',
-                border: '1px solid ' + (filterType === type ? 'var(--primary-500)' : 'var(--border-subtle)'),
-                background: filterType === type ? 'var(--primary-gradient)' : 'rgba(15, 23, 42, 0.6)',
-                color: filterType === type ? '#fff' : 'var(--text-muted)',
+                border: '1px solid ' + (filterType === type ? 'var(--primary)' : 'var(--border-subtle)'),
+                background: filterType === type ? 'var(--primary)' : 'var(--bg-elevated)',
+                color: filterType === type ? '#fff' : 'var(--text-secondary)',
                 fontSize: '0.78rem',
                 fontWeight: 600,
                 cursor: 'pointer',
