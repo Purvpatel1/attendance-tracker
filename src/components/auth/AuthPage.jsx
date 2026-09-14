@@ -44,6 +44,8 @@ export const AuthPage = ({ initialMode = 'login' }) => {
     requestPasswordReset,
     updatePassword,
     clearRecoveryMode,
+    deletionNotice,
+    clearDeletionNotice,
     loading: authLoading,
     isConfigured,
   } = useAuth();
@@ -350,6 +352,25 @@ export const AuthPage = ({ initialMode = 'login' }) => {
         )}
 
         {/* Error / Success Toast Alerts */}
+        {deletionNotice && (
+          <div className="alert alert-success" role="status" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <CheckCircle2 size={18} />
+              <span>{deletionNotice}</span>
+            </div>
+            {clearDeletionNotice && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={clearDeletionNotice}
+                style={{ padding: '4px', minWidth: 'auto', minHeight: 'auto', color: 'inherit' }}
+                aria-label="Dismiss notice"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
         {errorMessage && (
           <div className="alert alert-danger" role="alert">
             <AlertCircle size={18} />

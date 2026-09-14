@@ -4,6 +4,7 @@ import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
 import { Spinner } from '../common/Spinner';
+import { DeleteAccountModal } from './DeleteAccountModal';
 import {
   User,
   Mail,
@@ -15,10 +16,15 @@ import {
   AlertCircle,
   CheckCircle2,
   Lock,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const StudentProfileView = () => {
-  const { user, profile, loading: authLoading, updatePassword, signOut } = useAuth();
+  const { user, profile, loading: authLoading, updatePassword, signOut, deleteAccount } = useAuth();
+
+  // Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // Change Password state
   const [passwordData, setPasswordData] = useState({
@@ -358,7 +364,7 @@ export const StudentProfileView = () => {
             </p>
           </div>
           <Button
-            variant="danger"
+            variant="secondary"
             onClick={handleLogout}
             loading={isLoggingOut}
             disabled={isLoggingOut}
@@ -368,6 +374,38 @@ export const StudentProfileView = () => {
           </Button>
         </div>
       </Card>
+
+      {/* Card 4: Danger Zone - Delete Account */}
+      <Card
+        title="Danger Zone"
+        subtitle="Permanently erase your student account and all stored attendance logs"
+        style={{ borderColor: 'rgba(239, 68, 68, 0.3)' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-absent)' }}>
+              Delete Student Account
+            </h4>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Permanently remove your student profile, attendance history, extra lectures, and Auth credentials.
+            </p>
+          </div>
+          <Button
+            variant="danger"
+            onClick={() => setIsDeleteModalOpen(true)}
+            icon={Trash2}
+          >
+            Delete Account
+          </Button>
+        </div>
+      </Card>
+
+      {/* Delete Account Confirmation Modal */}
+      <DeleteAccountModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirmDelete={deleteAccount}
+      />
     </div>
   );
 };

@@ -10,6 +10,9 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [deletionNotice, setDeletionNotice] = useState('');
+
+  const clearDeletionNotice = () => setDeletionNotice('');
 
   const profilePromisesRef = React.useRef(new Map());
   const profileRef = React.useRef(profile);
@@ -512,6 +515,77 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Delete Authenticated Student Account via Supabase Edge Function
+  const deleteAccount = async () => {
+    setError(null);
+    if (!user?.id) {
+      return { success: false, error: 'User is not authenticated.' };
+    }
+
+    try {
+      if (!isSupabaseConfigured) {
+        // Dev preview mode fallback
+        profilePromisesRef.current.clear();
+        setUser(null);
+        setProfile(null);
+        setSession(null);
+        setDeletionNotice('Your account and all associated data have been permanently deleted.');
+        return { success: true, message: 'Account deleted (Dev mode).' };
+      }
+
+      const token = session?.access_token;
+      if (!token) {
+        return { success: false, error: 'No active session token found. Please sign in again.' };
+      }
+
+      // Call Supabase Edge Function with JWT Authorization header
+      const { data, error: funcError } = await supabase.functions.invoke('delete-account', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (funcError) {
+        console.error('Raw Supabase Edge Function Error:', funcError);
+        return {
+          success: false,
+          error: funcError.message || 'Failed to delete account. Edge Function invocation error.',
+        };
+      }
+
+      if (data && data.error) {
+        return {
+          success: false,
+          error: data.error,
+        };
+      }
+
+      // Deletion succeeded server-side: perform local session cleanup
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        console.warn('Post-deletion sign out notice:', e);
+      }
+
+      profilePromisesRef.current.clear();
+      setUser(null);
+      setProfile(null);
+      setSession(null);
+      setIsPasswordRecovery(false);
+
+      const msg = 'Your account and all associated data have been permanently deleted.';
+      setDeletionNotice(msg);
+
+      return { success: true, message: msg };
+    } catch (err) {
+      console.error('Unexpected deleteAccount error:', err);
+      return {
+        success: false,
+        error: err.message || 'An unexpected error occurred while deleting your account.',
+      };
+    }
+  };
+
   const value = {
     user,
     profile,
@@ -519,10 +593,13 @@ export const AuthProvider = ({ children }) => {
     loading,
     error,
     isPasswordRecovery,
+    deletionNotice,
+    clearDeletionNotice,
     signUp,
     signIn,
     signInWithGoogle,
     updateProfile,
+    deleteAccount,
     signOut,
     requestPasswordReset,
     updatePassword,
