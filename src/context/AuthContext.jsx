@@ -515,6 +515,44 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Update student email alert preferences in Supabase & React state
+  const updateEmailAlertPreference = async (enabled) => {
+    setError(null);
+    if (!user?.id) {
+      return { success: false, error: 'User is not authenticated.' };
+    }
+
+    try {
+      if (!isSupabaseConfigured) {
+        const updated = { ...(profile || {}), email_alerts_enabled: Boolean(enabled) };
+        setProfile(updated);
+        profileRef.current = updated;
+        return { success: true, profile: updated };
+      }
+
+      const { data, error: updateErr } = await supabase
+        .from('profiles')
+        .update({ email_alerts_enabled: Boolean(enabled), updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+        .select()
+        .single();
+
+      if (updateErr) {
+        console.error('Raw Supabase email_alerts_enabled update error:', updateErr);
+        return { success: false, error: updateErr.message || 'Failed to update alert settings.' };
+      }
+
+      const updatedProfile = data || { ...(profile || {}), email_alerts_enabled: Boolean(enabled) };
+      setProfile(updatedProfile);
+      profileRef.current = updatedProfile;
+
+      return { success: true, profile: updatedProfile };
+    } catch (err) {
+      console.error('updateEmailAlertPreference unexpected error:', err);
+      return { success: false, error: err.message || 'Something went wrong while updating alert settings.' };
+    }
+  };
+
   // Delete Authenticated Student Account via Supabase Edge Function
   const deleteAccount = async () => {
     setError(null);
@@ -599,6 +637,7 @@ export const AuthProvider = ({ children }) => {
     signIn,
     signInWithGoogle,
     updateProfile,
+    updateEmailAlertPreference,
     deleteAccount,
     signOut,
     requestPasswordReset,

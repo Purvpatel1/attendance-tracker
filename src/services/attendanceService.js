@@ -348,6 +348,8 @@ export async function saveAttendanceLog({
         window.dispatchEvent(new CustomEvent('attendance-updated'));
       }
 
+      triggerAttendanceAlertCheck(subjectId);
+
       return { success: true, data: delData && delData.length > 0 ? delData[0] : null };
     }
 
@@ -371,6 +373,8 @@ export async function saveAttendanceLog({
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('attendance-updated'));
       }
+
+      triggerAttendanceAlertCheck(subjectId);
 
       return { success: true, data: updateData ? updateData[0] : null };
     }
@@ -405,10 +409,38 @@ export async function saveAttendanceLog({
       window.dispatchEvent(new CustomEvent('attendance-updated'));
     }
 
+    triggerAttendanceAlertCheck(subjectId);
+
     return { success: true, data: data ? data[0] : null };
   } catch (err) {
     console.warn('Error saving attendance log:', err.message);
     return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Non-blocking background trigger for low attendance email alert checks.
+ * Passes ONLY subject_id to Edge Function. Student identity is derived from JWT.
+ */
+export function triggerAttendanceAlertCheck(subjectId) {
+  if (!subjectId || !isSupabaseConfigured) return;
+  try {
+    void supabase.functions
+      .invoke('send-attendance-alert', {
+        body: { subject_id: subjectId },
+      })
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('Background attendance alert check notice:', error.message || error);
+        } else if (data?.alerted) {
+          console.log('Low attendance warning email sent successfully:', data.messageId);
+        }
+      })
+      .catch((err) => {
+        console.warn('Background attendance alert check exception:', err?.message || err);
+      });
+  } catch (e) {
+    console.warn('Background attendance alert trigger error:', e);
   }
 }
 

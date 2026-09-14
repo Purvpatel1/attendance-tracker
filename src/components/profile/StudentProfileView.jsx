@@ -18,13 +18,50 @@ import {
   Lock,
   Trash2,
   AlertTriangle,
+  Bell,
+  BellOff,
 } from 'lucide-react';
 
 export const StudentProfileView = () => {
-  const { user, profile, loading: authLoading, updatePassword, signOut, deleteAccount } = useAuth();
+  const {
+    user,
+    profile,
+    loading: authLoading,
+    updatePassword,
+    signOut,
+    deleteAccount,
+    updateEmailAlertPreference,
+  } = useAuth();
 
   // Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isTogglingAlerts, setIsTogglingAlerts] = useState(false);
+  const [alertNotice, setAlertNotice] = useState('');
+  const [alertError, setAlertError] = useState('');
+
+  const emailAlertsEnabled = profile?.email_alerts_enabled !== false;
+
+  const handleToggleAlerts = async () => {
+    if (isTogglingAlerts) return;
+    setIsTogglingAlerts(true);
+    setAlertNotice('');
+    setAlertError('');
+
+    try {
+      const nextState = !emailAlertsEnabled;
+      const res = await updateEmailAlertPreference(nextState);
+      if (res && res.success) {
+        setAlertNotice(nextState ? 'Low attendance email alerts enabled.' : 'Low attendance email alerts disabled.');
+      } else {
+        setAlertError(res?.error || 'Could not update alert preferences.');
+      }
+    } catch (err) {
+      console.error('Toggle email alerts error:', err);
+      setAlertError('Failed to update alert preferences.');
+    } finally {
+      setIsTogglingAlerts(false);
+    }
+  };
 
   // Change Password state
   const [passwordData, setPasswordData] = useState({
@@ -354,7 +391,69 @@ export const StudentProfileView = () => {
         </form>
       </Card>
 
-      {/* Card 3: Account Session & Logout */}
+      {/* Card 3: Low Attendance Email Alerts */}
+      <Card
+        title="Low Attendance Email Alerts"
+        subtitle="Automated email notifications when subject attendance drops below the 75% threshold"
+      >
+        {alertError && (
+          <div className="alert alert-danger" role="alert" style={{ marginBottom: '14px' }}>
+            <AlertCircle size={18} />
+            <span>{alertError}</span>
+          </div>
+        )}
+        {alertNotice && (
+          <div className="alert alert-success" role="status" style={{ marginBottom: '14px' }}>
+            <CheckCircle2 size={18} />
+            <span>{alertNotice}</span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <h4 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Email Warning Notifications</h4>
+                <Badge variant={emailAlertsEnabled ? 'success' : 'neutral'}>
+                  {emailAlertsEnabled ? 'Enabled' : 'Disabled'}
+                </Badge>
+                <Badge variant="warning" style={{ fontSize: '0.65rem' }}>
+                  Threshold: 75%
+                </Badge>
+              </div>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+                Receive an automatic email at <strong>{email}</strong> when your attendance for any subject falls below <strong>75%</strong>.
+              </p>
+            </div>
+
+            <Button
+              variant={emailAlertsEnabled ? 'outline' : 'primary'}
+              onClick={handleToggleAlerts}
+              loading={isTogglingAlerts}
+              disabled={isTogglingAlerts}
+              icon={emailAlertsEnabled ? BellOff : Bell}
+            >
+              {emailAlertsEnabled ? 'Disable Alerts' : 'Enable Alerts'}
+            </Button>
+          </div>
+
+          <div
+            style={{
+              padding: '12px 14px',
+              background: 'var(--bg-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-subtle)',
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              lineHeight: '1.5',
+            }}
+          >
+            <strong>How alerts work:</strong> An email alert is sent only when a subject’s attendance drops from 75% or above to below 75%. Duplicate emails are suppressed while attendance remains below 75%. Once your attendance recovers to 75% or higher, the alert system resets and will notify you again if it drops below 75% in the future.
+          </div>
+        </div>
+      </Card>
+
+      {/* Card 4: Account Session & Logout */}
       <Card title="Account Session">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
           <div>
