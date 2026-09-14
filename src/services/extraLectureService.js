@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient.js';
+import { triggerAttendanceAlertCheck } from './attendanceService.js';
 
 /**
  * Dynamically loads eligible curriculum subjects for a student directly from Supabase public.subjects table.
@@ -140,6 +141,10 @@ export async function createExtraLecture({ studentId, subjectId, date, startTime
       return { success: false, error: error.message };
     }
 
+    if (subjectId) {
+      triggerAttendanceAlertCheck(subjectId);
+    }
+
     return { success: true, data: data ? data[0] : null };
   } catch (err) {
     console.warn('Error creating extra lecture:', err.message);
@@ -175,6 +180,10 @@ export async function updateExtraLecture({ id, studentId, subjectId, date, start
       return { success: false, error: error.message };
     }
 
+    if (subjectId) {
+      triggerAttendanceAlertCheck(subjectId);
+    }
+
     return { success: true, data: data ? data[0] : null };
   } catch (err) {
     console.warn('Error updating extra lecture:', err.message);
@@ -186,7 +195,7 @@ export async function updateExtraLecture({ id, studentId, subjectId, date, start
  * Deletes an extra lecture from Supabase.
  * Cascade deletion in DB automatically removes associated attendance logs.
  */
-export async function deleteExtraLecture(id, studentId) {
+export async function deleteExtraLecture(id, studentId, subjectId = null) {
   if (!id || !studentId) {
     return { success: false, error: 'Missing id or studentId' };
   }
@@ -201,6 +210,10 @@ export async function deleteExtraLecture(id, studentId) {
     if (error) {
       console.warn('Supabase delete extra lecture error:', error.message);
       return { success: false, error: error.message };
+    }
+
+    if (subjectId) {
+      triggerAttendanceAlertCheck(subjectId);
     }
 
     return { success: true };

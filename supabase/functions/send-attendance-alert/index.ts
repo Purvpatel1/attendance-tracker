@@ -1,13 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const allowedOrigins = [
+  "https://attendance-tracker-phi-inky.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+];
+
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("Origin") || "";
+  const isAllowed = allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
+  return {
+    "Access-Control-Allow-Origin": isAllowed ? origin : "https://attendance-tracker-phi-inky.vercel.app",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req);
+
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -29,7 +42,6 @@ serve(async (req: Request) => {
     const resendFromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "";
     const appUrl = Deno.env.get("APP_URL") || "https://attendance-tracker-phi-inky.vercel.app/";
 
-    // Validate mandatory server-side secrets
     if (!supabaseUrl || !supabaseServiceRoleKey) {
       return new Response(
         JSON.stringify({ error: "Server misconfiguration: missing Supabase credentials." }),
@@ -60,7 +72,6 @@ serve(async (req: Request) => {
       );
     }
 
-    // Check if user email is verified
     if (!user.email_confirmed_at) {
       return new Response(
         JSON.stringify({ success: true, skipped: "unverified_email", message: "User email is not confirmed." }),
@@ -68,13 +79,8 @@ serve(async (req: Request) => {
       );
     }
 
-    // Extract payload parameter
     let body: any = {};
-    try {
-      body = await req.json();
-    } catch (e) {
-      // Body may be empty
-    }
+    try { body = await req.json(); } catch (e) {}
 
     const subjectId = body.subject_id || body.subjectId;
     if (!subjectId) {
@@ -84,10 +90,8 @@ serve(async (req: Request) => {
       );
     }
 
-    // Admin client using service-role key
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    // 1. Fetch student profile to check email alert preference & student name
     const { data: profileData } = await adminClient
       .from("profiles")
       .select("full_name, email_alerts_enabled")
@@ -103,7 +107,6 @@ serve(async (req: Request) => {
 
     const studentName = profileData?.full_name || "Student";
 
-    // 2. Fetch subject details
     const { data: subjectData } = await adminClient
       .from("subjects")
       .select("name, code")
@@ -113,7 +116,6 @@ serve(async (req: Request) => {
     const subjectName = subjectData?.name || "Subject";
     const subjectCode = subjectData?.code || "";
 
-    // 3. Fetch student's attendance logs for this subject
     const { data: logsData, error: logsErr } = await adminClient
       .from("attendance_logs")
       .select("status")
@@ -140,7 +142,6 @@ serve(async (req: Request) => {
     const percentage = conductedCount > 0 ? (presentCount / conductedCount) * 100 : 100;
     const formattedPercentage = Number(percentage.toFixed(1));
 
-    // 4. Atomic Alert Claim via RPC
     const { data: claimData, error: claimErr } = await adminClient.rpc("claim_attendance_alert", {
       p_student_id: user.id,
       p_subject_id: subjectId,
@@ -170,7 +171,6 @@ serve(async (req: Request) => {
       );
     }
 
-    // 5. Send Email via Resend API
     const emailSubject = `Attendance Warning: ${subjectName}`;
     const htmlBody = `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -202,41 +202,58 @@ serve(async (req: Request) => {
 
     const textBody = `Hello ${studentName},\n\nYour attendance in ${subjectName} (${subjectCode}) has fallen below 75%.\nCurrent Attendance: ${formattedPercentage}% (${presentCount}/${conductedCount} lectures).\n\nPlease attend upcoming classes to recover your attendance.\nView Dashboard: ${appUrl}`;
 
-    const resendResponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${resendApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: resendFromEmail,
-        to: [user.email],
-        subject: emailSubject,
-        html: htmlBody,
-        text: textBody,
-      }),
-    });
+    let resendResponse: Response;
+    try {
+      resendResponse = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: resendFromEmail,
+          to: [user.email],
+          subject: emailSubject,
+          html: htmlBody,
+          text: textBody,
+        }),
+      });
+    } catch (netErr: any) {
+      console.error("Resend API Network Exception (uncertain delivery status):", netErr);
+      // Uncertain network drop: Keep state as CLAIMED with claimed_at timestamp so 10-min backoff prevents duplicate spam
+      return new Response(
+        JSON.stringify({
+          error: "Network exception communicating with Resend API. State remains claimed to prevent duplicate email spam.",
+          details: netErr.message || String(netErr),
+        }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     const resendResult = await resendResponse.json();
 
     if (!resendResponse.ok) {
-      console.error("Resend API Failure:", resendResult);
-      // Rollback claim state on Resend API failure
-      await adminClient.rpc("rollback_attendance_alert_claim", {
-        p_student_id: user.id,
-        p_subject_id: subjectId,
-      });
+      console.error("Resend API HTTP Error:", resendResponse.status, resendResult);
+
+      // Explicit 4xx client errors (e.g. invalid recipient, domain error): email was NOT sent
+      if (resendResponse.status >= 400 && resendResponse.status < 500) {
+        await adminClient.rpc("rollback_attendance_alert_claim", {
+          p_student_id: user.id,
+          p_subject_id: subjectId,
+        });
+      }
+      // 5xx server errors: uncertain delivery state, leave state as CLAIMED until 10-minute timeout window expires
 
       return new Response(
         JSON.stringify({
-          error: "Failed to send warning email via Resend API.",
+          error: `Resend API Error (Status ${resendResponse.status})`,
           details: resendResult,
         }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: resendResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Confirm alert state to BELOW_THRESHOLD on Resend API success
+    // Confirm alert state to BELOW_THRESHOLD on Resend API HTTP 2xx success
     await adminClient.rpc("confirm_attendance_alert_sent", {
       p_student_id: user.id,
       p_subject_id: subjectId,
